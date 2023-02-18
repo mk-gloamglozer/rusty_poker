@@ -2,6 +2,7 @@ use crate::event::BoardModifiedEvent;
 use std::collections::HashMap;
 use util::{FromEventStream, HandleEvent};
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct Board {
     id: String,
     participants: HashMap<String, Participant>,
@@ -16,6 +17,7 @@ impl Board {
     }
 }
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct Participant {
     name: String,
     vote: Option<Vote>,
@@ -27,6 +29,7 @@ impl Participant {
     }
 }
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct Vote {
     card_set_id: String,
     card_id: String,
@@ -56,6 +59,7 @@ impl HandleEvent for Board {
             BoardModifiedEvent::ParticipantRemoved { participant_id } => {
                 self.participants.remove(&participant_id);
             }
+            BoardModifiedEvent::ParticipantCouldNotBeRemoved { .. } => {}
             BoardModifiedEvent::ParticipantVoted {
                 participant_id,
                 card_set_id,
@@ -65,6 +69,7 @@ impl HandleEvent for Board {
                     participant.vote = Some(Vote::new(card_set_id, card_id));
                 }
             }
+            BoardModifiedEvent::ParticipantCouldNotVote { .. } => {}
             BoardModifiedEvent::VotesCleared => {
                 for participant in self.participants.values_mut() {
                     participant.vote = None;
@@ -89,6 +94,7 @@ impl FromEventStream for Board {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::{ParticipantNotRemovedReason, ParticipantNotVotedReason};
 
     #[test]
     pub fn it_should_add_a_participant() {
@@ -135,6 +141,18 @@ mod tests {
     }
 
     #[test]
+    pub fn it_should_not_apply_participant_could_not_vote() {
+        let mut board = Board::new("test".to_string());
+        let expected = board.clone();
+        let event = BoardModifiedEvent::ParticipantCouldNotVote {
+            participant_id: "test".to_string(),
+            reason: ParticipantNotVotedReason::DoesNotExist,
+        };
+        board.apply(event);
+        assert_eq!(board, expected);
+    }
+
+    #[test]
     pub fn it_should_clear_votes() {
         let mut board = Board::new("test".to_string());
         let event = BoardModifiedEvent::ParticipantAdded {
@@ -152,6 +170,25 @@ mod tests {
         board.apply(event);
         assert_eq!(board.participants.len(), 1);
         assert!(board.participants.get("test").unwrap().vote.is_none());
+    }
+
+    #[test]
+    pub fn it_should_not_respond_to_participant_could_not_be_removed() {
+        let mut board = Board::new("test".to_string());
+        let event = BoardModifiedEvent::ParticipantAdded {
+            participant_id: "test".to_string(),
+            participant_name: "test".to_string(),
+        };
+        board.apply(event);
+
+        let expected = board.clone();
+
+        let event = BoardModifiedEvent::ParticipantCouldNotBeRemoved {
+            participant_id: "test".to_string(),
+            reason: ParticipantNotRemovedReason::DoesNotExist,
+        };
+        board.apply(event);
+        assert_eq!(board, expected);
     }
 
     #[test]
