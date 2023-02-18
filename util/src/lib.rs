@@ -38,3 +38,8 @@ pub trait HandleEvent {
     type Event;
     fn apply(&mut self, event: Self::Event);
 }
+
+pub trait FromEventStream {
+    type Event;
+    fn from_event_stream(entity: String, events: Vec<Self::Event>) -> Self;
+}
