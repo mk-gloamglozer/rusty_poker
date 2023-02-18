@@ -1,6 +1,6 @@
 use crate::event::BoardModifiedEvent;
 use std::collections::HashMap;
-use util::HandleEvent;
+use util::{FromEventStream, HandleEvent};
 
 pub struct Board {
     id: String,
@@ -74,6 +74,18 @@ impl HandleEvent for Board {
     }
 }
 
+impl FromEventStream for Board {
+    type Event = BoardModifiedEvent;
+
+    fn from_event_stream(entity: String, events: Vec<Self::Event>) -> Self {
+        let mut board = Board::new(entity);
+        for event in events {
+            board.apply(event);
+        }
+        board
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,5 +152,23 @@ mod tests {
         board.apply(event);
         assert_eq!(board.participants.len(), 1);
         assert!(board.participants.get("test").unwrap().vote.is_none());
+    }
+
+    #[test]
+    pub fn it_should_reconstruct_from_event_stream() {
+        let events = vec![
+            BoardModifiedEvent::ParticipantAdded {
+                participant_id: "test".to_string(),
+                participant_name: "test".to_string(),
+            },
+            BoardModifiedEvent::ParticipantVoted {
+                participant_id: "test".to_string(),
+                card_set_id: "test".to_string(),
+                card_id: "test".to_string(),
+            },
+        ];
+        let board = Board::from_event_stream("test".to_string(), events);
+        assert_eq!(board.participants.len(), 1);
+        assert!(board.participants.get("test").unwrap().vote.is_some());
     }
 }
