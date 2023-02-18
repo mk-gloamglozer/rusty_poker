@@ -43,3 +43,8 @@ pub trait FromEventStream {
     type Event;
     fn from_event_stream(entity: String, events: Vec<Self::Event>) -> Self;
 }
+
+pub trait HandleCommand<Command> {
+    type Event;
+    fn execute(&self, command: Command) -> Vec<Self::Event>;
+}
