@@ -1,7 +1,7 @@
-mod add_participant;
-mod clear_votes;
-mod remove_participant;
-mod vote;
+pub mod add_participant;
+pub mod clear_votes;
+pub mod remove_participant;
+pub mod vote;
 
 use crate::event::BoardModifiedEvent;
 use std::collections::HashMap;

@@ -3,7 +3,7 @@ use crate::event::ParticipantNotRemovedReason;
 use util::HandleCommand;
 
 #[derive(Debug, PartialEq, Clone)]
-struct RemoveParticipantCommand {
+pub struct RemoveParticipantCommand {
     participant_id: String,
 }
 

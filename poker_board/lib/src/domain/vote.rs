@@ -2,6 +2,7 @@ use super::*;
 use crate::event::ParticipantNotVotedReason;
 use util::HandleCommand;
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct ParticipantVote {
     pub participant_id: String,
     pub card_set_id: String,

@@ -3,8 +3,14 @@ use util::HandleCommand;
 use uuid::Uuid;
 
 #[derive(Debug, PartialEq, Clone)]
-struct AddParticipantCommand {
+pub struct AddParticipantCommand {
     participant_name: String,
+}
+
+impl AddParticipantCommand {
+    pub fn new(participant_name: String) -> Self {
+        Self { participant_name }
+    }
 }
 
 impl HandleCommand<AddParticipantCommand> for Board {
