@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use std::ops::Deref;
 
 pub struct EventAggregate<T> {
@@ -47,4 +48,22 @@ pub trait FromEventStream {
 pub trait HandleCommand<Command> {
     type Event;
     fn execute(&self, command: Command) -> Vec<Self::Event>;
+}
+
+pub struct CommandDto<T> {
+    pub entity: String,
+    pub command: T,
+}
+
+impl<T> CommandDto<T> {
+    pub fn new(entity: String, command: T) -> Self {
+        Self { entity, command }
+    }
+}
+
+#[async_trait]
+pub trait UseCase: Send + Sync {
+    type Error;
+    type Command;
+    async fn execute(&self, command_dto: CommandDto<Self::Command>) -> Result<(), Self::Error>;
 }
