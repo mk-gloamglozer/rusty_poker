@@ -1,13 +1,3 @@
-pub enum BoardEvent {
-    BoardCreated {
-        board_id: String,
-    },
-    BoardModified {
-        board_id: String,
-        event: BoardModifiedEvent,
-    },
-}
-
 pub enum BoardModifiedEvent {
     ParticipantAdded {
         participant_id: String,
