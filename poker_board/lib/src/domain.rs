@@ -1,3 +1,8 @@
+mod add_participant;
+mod clear_votes;
+mod remove_participant;
+mod vote;
+
 use crate::event::BoardModifiedEvent;
 use std::collections::HashMap;
 use util::{FromEventStream, HandleEvent};
