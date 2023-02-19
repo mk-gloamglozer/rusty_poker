@@ -1,109 +1,63 @@
-use crate::domain;
-use crate::domain::add_participant::AddParticipantCommand;
 use crate::domain::Board;
 use crate::event::BoardModifiedEvent;
-use crate::port::{LoadError, LoadEventsPort, PersistableEvent, PortError};
+use crate::port::{Attempt, ModifyEntityPort, ModifyError};
 use async_trait::async_trait;
 use util::{CommandDto, FromEventStream, HandleCommand, UseCase};
-use uuid::Uuid;
 
-#[derive(Debug, Clone, PartialEq)]
-struct AddParticipantDto {
-    participant_name: String,
-}
-
-impl AddParticipantDto {
-    pub fn new(participant_name: String) -> Self {
-        Self { participant_name }
-    }
-}
-
-struct Service<Command> {
+struct ModifyingService<'a, Command, Event> {
     phantom: std::marker::PhantomData<Command>,
-    load_port: Box<dyn LoadEventsPort>,
+    modify_port: Box<dyn ModifyEntityPort<'a, Vec<Event>>>,
 }
 
 #[async_trait]
-impl<Command> UseCase for Service<Command>
+impl<'a, Command> UseCase for ModifyingService<'a, Command, BoardModifiedEvent>
 where
-    Command: Send + Sync,
+    Command: Send + Sync + Clone + 'a,
     Board: FromEventStream + HandleCommand<Command, Event = BoardModifiedEvent> + Send + Sync,
 {
-    type Error = PortError;
+    type Error = ModifyError;
     type Command = Command;
+    async fn execute(&self, command_dto: CommandDto<Command>) -> Result<(), Self::Error> {
+        let entity = command_dto.entity.clone();
+        let attempt = Attempt::<Vec<BoardModifiedEvent>>::new(move |events| {
+            let board = Board::from_event_stream(command_dto.entity.clone(), events);
+            let events = board.execute(command_dto.command.clone());
+            events
+        });
 
-    async fn execute(&self, command_dto: CommandDto<Self::Command>) -> Result<(), Self::Error> {
-        let persistable = self.load_port.load_events(&command_dto.entity).await?;
-
-        let board = Board::from_event_stream(command_dto.entity, persistable.events());
-        let events = board.execute(command_dto.command);
-
-        persistable
-            .with_events(events)
-            .persist()
-            .await
-            .map_err(PortError::from)
+        self.modify_port.modify_entity(entity, attempt).await
     }
 }
 
 #[cfg(test)]
-mod tests {
+mod test_modifying_service {
     use super::*;
-    use crate::port::*;
+    use crate::domain::add_participant::AddParticipantCommand;
     use mockall::{mock, predicate};
-    use std::pin::Pin;
-    use uuid::Variant::Future;
 
     mock! {
-        pub LoadEventsAdapter {
-            fn internal_load_events(&self, entity: &String) -> Result<Box<dyn PersistableEvent<BoardModifiedEvent>>, LoadError>;
-        }
-
-    }
-
-    mock! {
-        pub PersistableEventAdapter {
-            fn internal_persist(&self) -> Result<(), SaveError>;
-            fn internal_events(&self) -> Vec<BoardModifiedEvent>;
-            fn internal_with_events(&self, events: Vec<BoardModifiedEvent>) -> Box<dyn PersistableEvent<BoardModifiedEvent>>;
+        pub ModifyEntityAdapter {
+            fn persist_entity(&self, entity: String, events: Vec<BoardModifiedEvent>) -> Result<(), ModifyError>;
+            fn events(&self) -> Vec<BoardModifiedEvent>;
         }
     }
 
     #[async_trait]
-    impl LoadEventsPort for MockLoadEventsAdapter {
-        async fn load_events(
+    impl<'a> ModifyEntityPort<'a, Vec<BoardModifiedEvent>> for MockModifyEntityAdapter {
+        async fn modify_entity(
             &self,
-            entity: &String,
-        ) -> Result<Box<dyn PersistableEvent<BoardModifiedEvent>>, LoadError> {
-            self.internal_load_events(entity)
-        }
-    }
-
-    #[async_trait]
-    impl PersistableEvent<BoardModifiedEvent> for MockPersistableEventAdapter {
-        async fn persist(&self) -> Result<(), SaveError> {
-            self.internal_persist()
-        }
-
-        fn events(&self) -> Vec<BoardModifiedEvent> {
-            self.internal_events()
-        }
-
-        fn with_events(
-            self: Box<Self>,
-            events: Vec<BoardModifiedEvent>,
-        ) -> Box<dyn PersistableEvent<BoardModifiedEvent>> {
-            self.internal_with_events(events)
+            entity: String,
+            attempt: Attempt<'a, Vec<BoardModifiedEvent>>,
+        ) -> Result<(), ModifyError> {
+            self.persist_entity(entity, attempt.attempt(self.events()))
         }
     }
 
     #[tokio::test]
     pub async fn it_should_persist_changed_events() {
-        let mut mock_load_events_adapter = MockLoadEventsAdapter::new();
-        let mut mock_persistable_event_adapter = MockPersistableEventAdapter::new();
-        let mut mock_persistable_event_adapter2 = MockPersistableEventAdapter::new();
-
+        let mut mock_modify_entity_adapter = MockModifyEntityAdapter::new();
         let id = "test-id".to_string();
+
         let participant_name = "participant_name".to_string();
         let add_participant_command = AddParticipantCommand::new(participant_name.clone());
 
@@ -117,31 +71,20 @@ mod tests {
             false
         });
 
-        mock_persistable_event_adapter2
-            .expect_internal_persist()
-            .times(1)
-            .return_once(move || Ok(()));
-
-        mock_persistable_event_adapter
-            .expect_internal_events()
+        mock_modify_entity_adapter
+            .expect_events()
             .times(1)
             .return_once(move || vec![]);
 
-        mock_persistable_event_adapter
-            .expect_internal_with_events()
-            .with(correct_participant_added)
+        mock_modify_entity_adapter
+            .expect_persist_entity()
+            .with(predicate::eq(id.to_string()), correct_participant_added)
             .times(1)
-            .return_once(move |events| Box::new(mock_persistable_event_adapter2));
+            .return_once(move |_, _| Ok(()));
 
-        mock_load_events_adapter
-            .expect_internal_load_events()
-            .with(predicate::eq(id.to_string()))
-            .times(1)
-            .return_once(move |_| Ok(Box::new(mock_persistable_event_adapter)));
-
-        let service = Service::<AddParticipantCommand> {
+        let service = ModifyingService::<AddParticipantCommand, BoardModifiedEvent> {
             phantom: std::marker::PhantomData,
-            load_port: Box::new(mock_load_events_adapter),
+            modify_port: Box::new(mock_modify_entity_adapter),
         };
 
         let command_dto = CommandDto::new(id.to_string(), add_participant_command);
@@ -151,48 +94,30 @@ mod tests {
 
     #[tokio::test]
     pub async fn it_should_return_error_when_persisting_fails() {
-        let mut mock_load_events_adapter = MockLoadEventsAdapter::new();
-        let mut mock_persistable_event_adapter = MockPersistableEventAdapter::new();
-
+        let mut mock_modify_entity_adapter = MockModifyEntityAdapter::new();
         let id = "test-id".to_string();
+
         let participant_name = "participant_name".to_string();
         let add_participant_command = AddParticipantCommand::new(participant_name.clone());
 
-        mock_persistable_event_adapter
-            .expect_internal_events()
+        mock_modify_entity_adapter
+            .expect_events()
             .times(1)
             .return_once(move || vec![]);
 
-        mock_persistable_event_adapter
-            .expect_internal_with_events()
+        mock_modify_entity_adapter
+            .expect_persist_entity()
             .times(1)
-            .return_once(move |events| {
-                Box::new({
-                    let mut mock = MockPersistableEventAdapter::new();
-                    mock.expect_internal_persist()
-                        .times(1)
-                        .return_once(move || Err(SaveError::ConnectionError));
-                    mock
-                })
-            });
+            .return_once(|_, _| Err(ModifyError::ConnectionError("test".to_string())));
 
-        mock_load_events_adapter
-            .expect_internal_load_events()
-            .with(predicate::eq(id.to_string()))
-            .times(1)
-            .return_once(move |_| Ok(Box::new(mock_persistable_event_adapter)));
-
-        let service = Service::<AddParticipantCommand> {
+        let service = ModifyingService::<AddParticipantCommand, BoardModifiedEvent> {
             phantom: std::marker::PhantomData,
-            load_port: Box::new(mock_load_events_adapter),
+            modify_port: Box::new(mock_modify_entity_adapter),
         };
 
         let command_dto = CommandDto::new(id.to_string(), add_participant_command);
         let result = service.execute(command_dto).await;
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            PortError::SaveError(SaveError::ConnectionError)
-        ));
+        assert!(matches!(result.unwrap_err(), ModifyError::ConnectionError(x) if x == "test"));
     }
 }

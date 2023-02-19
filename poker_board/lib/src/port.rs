@@ -1,50 +1,43 @@
-use crate::event::BoardModifiedEvent;
 use async_trait::async_trait;
-use mockall::automock;
-use std::ops::Deref;
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum PortError {
-    LoadError(LoadError),
-    SaveError(SaveError),
+pub enum ModifyError {
+    ConnectionError(String),
+    UnableToCompleteError(String),
 }
 
-impl From<LoadError> for PortError {
-    fn from(error: LoadError) -> Self {
-        Self::LoadError(error)
-    }
-}
+type ModifyFn<'a, T> = Box<dyn Fn(T) -> T + Send + Sync + 'a>;
 
-impl From<SaveError> for PortError {
-    fn from(error: SaveError) -> Self {
-        Self::SaveError(error)
-    }
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum LoadError {
-    ConnectionError,
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum SaveError {
-    ConnectionError,
-}
-
-#[async_trait]
-pub trait LoadEventsPort: Send + Sync {
-    async fn load_events(
-        &self,
-        entity: &String,
-    ) -> Result<Box<dyn PersistableEvent<BoardModifiedEvent>>, LoadError>;
-}
-
-#[async_trait]
-pub trait PersistableEvent<T>: Send + Sync
+pub struct Attempt<'a, T>
 where
     T: Send + Sync,
 {
-    async fn persist(&self) -> Result<(), SaveError>;
-    fn events(&self) -> Vec<T>;
-    fn with_events(self: Box<Self>, events: Vec<T>) -> Box<dyn PersistableEvent<T>>;
+    attempt_fn: ModifyFn<'a, T>,
+}
+
+impl<'a, T> Attempt<'a, T>
+where
+    T: Send + Sync + 'a,
+{
+    pub fn new(attempt_fn: impl Fn(T) -> T + Send + Sync + 'a) -> Self {
+        Self {
+            attempt_fn: Box::new(attempt_fn),
+        }
+    }
+
+    pub fn attempt(&self, entity: T) -> T {
+        (self.attempt_fn)(entity)
+    }
+}
+
+#[async_trait]
+pub trait ModifyEntityPort<'a, T>: Send + Sync
+where
+    T: Send + Sync,
+{
+    async fn modify_entity(
+        &self,
+        entity: String,
+        attempt: Attempt<'a, T>,
+    ) -> Result<(), ModifyError>;
 }
