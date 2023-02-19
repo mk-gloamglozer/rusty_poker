@@ -1,6 +1,6 @@
-mod adapter;
+pub mod adapter;
 mod domain;
-mod event;
-mod port;
-mod presentation;
-mod service;
+pub mod event;
+pub mod port;
+pub mod presentation;
+pub mod service;
