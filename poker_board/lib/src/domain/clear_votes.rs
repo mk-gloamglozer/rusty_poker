@@ -4,6 +4,12 @@ use util::HandleCommand;
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClearVotes {}
 
+impl ClearVotes {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
 impl HandleCommand<ClearVotes> for Board {
     type Event = BoardModifiedEvent;
 
