@@ -1,9 +1,14 @@
+use crate::event::BoardModifiedEvent;
 use async_trait::async_trait;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ModifyError {
     ConnectionError(String),
     UnableToCompleteError(String),
+    EventLogChangedError {
+        original: Vec<BoardModifiedEvent>,
+        actual: Vec<BoardModifiedEvent>,
+    },
 }
 
 type ModifyFn<'a, T> = Box<dyn Fn(T) -> T + Send + Sync + 'a>;
