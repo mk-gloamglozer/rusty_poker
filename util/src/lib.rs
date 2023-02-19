@@ -50,6 +50,7 @@ pub trait HandleCommand<Command> {
     fn execute(&self, command: Command) -> Vec<Self::Event>;
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct CommandDto<T> {
     pub entity: String,
     pub command: T,
