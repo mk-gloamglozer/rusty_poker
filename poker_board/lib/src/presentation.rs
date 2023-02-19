@@ -1,5 +1,6 @@
 use crate::domain::add_participant;
 use actix_web::HttpResponse;
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display};
 use util::{CommandDto, UseCase};
@@ -7,6 +8,27 @@ use util::{CommandDto, UseCase};
 trait CommandDeserializer {
     type Command;
     fn deserialize_command(&self, command: String) -> Result<Self::Command, String>;
+}
+
+trait EntityCommand {
+    fn entity_id(&self) -> String;
+}
+
+#[async_trait]
+trait CommandHandler<Command> {
+    async fn handle_command(&self, command: Command) -> Result<(), String>;
+}
+
+#[async_trait]
+impl<T, U, C> CommandHandler<U> for T
+where
+    U: Into<CommandDto<C>> + Send + Sync + 'static,
+    T: UseCase<Command = C, Error = String>,
+    C: Send + Sync,
+{
+    async fn handle_command(&self, command: U) -> Result<(), String> {
+        self.execute(command.into()).await
+    }
 }
 
 impl<F, T, E> CommandDeserializer for F
@@ -35,24 +57,18 @@ impl Into<CommandDto<add_participant::AddParticipantCommand>> for AddParticipant
     }
 }
 
-struct Controller<Error> {
-    deserializer: Box<dyn CommandDeserializer<Command = AddParticipantDto>>,
-    add_participant_use_case:
-        Box<dyn UseCase<Command = add_participant::AddParticipantCommand, Error = Error>>,
+struct Controller<Command> {
+    deserializer: Box<dyn CommandDeserializer<Command = Command>>,
+    handler: Box<dyn CommandHandler<Command>>,
 }
 
-impl<Error> Controller<Error>
-where
-    Error: Display,
-{
+impl<Command> Controller<Command> {
     pub fn new(
-        add_participant_use_case: Box<
-            dyn UseCase<Command = add_participant::AddParticipantCommand, Error = Error>,
-        >,
-        deserializer: Box<dyn CommandDeserializer<Command = AddParticipantDto>>,
+        handler: Box<dyn CommandHandler<Command>>,
+        deserializer: Box<dyn CommandDeserializer<Command = Command>>,
     ) -> Self {
         Self {
-            add_participant_use_case,
+            handler,
             deserializer,
         }
     }
@@ -62,7 +78,7 @@ where
             .deserializer
             .deserialize_command(req_body)
             .map_err(|e| HttpResponse::BadRequest().body(e.to_string()))
-            .map(|dto: AddParticipantDto| self.add_participant_use_case.execute(dto.into()))
+            .map(|dto| self.handler.handle_command(dto))
             .map(|result| async {
                 match result.await {
                     Ok(_) => Ok(HttpResponse::Ok().finish()),
@@ -111,7 +127,8 @@ mod tests {
         let deserializer =
             Box::new(|req_body: String| serde_json::from_str(&req_body).map_err(|e| e.to_string()));
 
-        let controller = Controller::new(Box::new(mock_add_participant_use_case), deserializer);
+        let controller: Controller<AddParticipantDto> =
+            Controller::new(Box::new(mock_add_participant_use_case), deserializer);
 
         let req_body = r#"{"entity_id": "test-id", "name": "test-name"}"#.to_string();
 
@@ -130,7 +147,8 @@ mod tests {
         let deserializer =
             Box::new(|req_body: String| serde_json::from_str(&req_body).map_err(|e| e.to_string()));
 
-        let controller = Controller::new(Box::new(mock_add_participant_use_case), deserializer);
+        let controller: Controller<AddParticipantDto> =
+            Controller::new(Box::new(mock_add_participant_use_case), deserializer);
 
         let req_body = r#"{"entity_id": "test-id"}"#.to_string();
 
@@ -149,7 +167,8 @@ mod tests {
         let deserializer =
             Box::new(|req_body: String| serde_json::from_str(&req_body).map_err(|e| e.to_string()));
 
-        let controller = Controller::new(Box::new(mock_add_participant_use_case), deserializer);
+        let controller: Controller<AddParticipantDto> =
+            Controller::new(Box::new(mock_add_participant_use_case), deserializer);
 
         let req_body = r#"{"entity_id": "test-id", "name": "test-name"}"#.to_string();
 
