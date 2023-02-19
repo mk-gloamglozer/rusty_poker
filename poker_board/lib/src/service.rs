@@ -20,9 +20,10 @@ where
     async fn execute(&self, command_dto: CommandDto<Command>) -> Result<(), Self::Error> {
         let entity = command_dto.entity.clone();
         let attempt = Attempt::<Vec<BoardModifiedEvent>>::new(move |events| {
+            let mut initial_events = events.clone();
             let board = Board::from_event_stream(command_dto.entity.clone(), events);
-            let events = board.execute(command_dto.command.clone());
-            events
+            initial_events.extend(board.execute(command_dto.command.clone()));
+            initial_events
         });
 
         self.modify_port.modify_entity(entity, attempt).await
@@ -33,7 +34,7 @@ where
 mod test_modifying_service {
     use super::*;
     use crate::domain::add_participant::AddParticipantCommand;
-    use mockall::{mock, predicate};
+    use mockall::{mock, predicate, PredicateBooleanExt};
 
     mock! {
         pub ModifyEntityAdapter {
@@ -54,7 +55,7 @@ mod test_modifying_service {
     }
 
     #[tokio::test]
-    pub async fn it_should_persist_changed_events() {
+    pub async fn it_should_persist_updated_list_of_events() {
         let mut mock_modify_entity_adapter = MockModifyEntityAdapter::new();
         let id = "test-id".to_string();
 
@@ -64,21 +65,32 @@ mod test_modifying_service {
         let correct_participant_added = predicate::function(|events: &Vec<BoardModifiedEvent>| {
             if let Some(BoardModifiedEvent::ParticipantAdded {
                 participant_name, ..
-            }) = events.get(0)
+            }) = events.get(1)
             {
                 return &participant_name == &participant_name;
             }
             false
         });
 
+        let has_two_events =
+            predicate::function(|events: &Vec<BoardModifiedEvent>| events.len() == 2);
+
         mock_modify_entity_adapter
             .expect_events()
             .times(1)
-            .return_once(move || vec![]);
+            .return_once(move || {
+                vec![BoardModifiedEvent::ParticipantAdded {
+                    participant_id: "test-id".to_string(),
+                    participant_name: "test-name".to_string(),
+                }]
+            });
 
         mock_modify_entity_adapter
             .expect_persist_entity()
-            .with(predicate::eq(id.to_string()), correct_participant_added)
+            .with(
+                predicate::eq(id.to_string()),
+                has_two_events.and(correct_participant_added),
+            )
             .times(1)
             .return_once(move |_, _| Ok(()));
 
