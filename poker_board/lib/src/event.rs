@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum BoardModifiedEvent {
     ParticipantAdded {
@@ -21,6 +23,12 @@ pub enum BoardModifiedEvent {
         reason: ParticipantNotVotedReason,
     },
     VotesCleared,
+}
+
+impl Display for BoardModifiedEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
