@@ -9,6 +9,16 @@ pub struct ParticipantVote {
     pub card_id: String,
 }
 
+impl ParticipantVote {
+    pub fn new(participant_id: String, card_set_id: String, card_id: String) -> Self {
+        Self {
+            participant_id,
+            card_set_id,
+            card_id,
+        }
+    }
+}
+
 impl HandleCommand<ParticipantVote> for Board {
     type Event = BoardModifiedEvent;
 
@@ -64,7 +74,7 @@ mod tests {
 
     #[test]
     pub fn it_should_not_vote_for_a_participant_that_does_not_exist() {
-        let board = Board::new("test".to_string());
+        let board = Board::new();
         let command = ParticipantVote {
             participant_id: "test".to_string(),
             card_set_id: "test".to_string(),

@@ -7,6 +7,12 @@ pub struct RemoveParticipantCommand {
     participant_id: String,
 }
 
+impl RemoveParticipantCommand {
+    pub fn new(participant_id: String) -> Self {
+        Self { participant_id }
+    }
+}
+
 impl HandleCommand<RemoveParticipantCommand> for Board {
     type Event = BoardModifiedEvent;
 
@@ -51,7 +57,7 @@ mod tests {
 
     #[test]
     pub fn it_should_not_remove_a_participant_that_does_not_exist() {
-        let board = Board::new("test".to_string());
+        let board = Board::new();
         let command = RemoveParticipantCommand {
             participant_id: "test".to_string(),
         };

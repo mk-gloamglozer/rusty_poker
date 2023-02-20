@@ -24,7 +24,7 @@ mod tests {
 
     #[test]
     pub fn it_should_clear_votes() {
-        let board = Board::new("test".to_string());
+        let board = Board::new();
         let command = ClearVotes {};
         let events = board.execute(command);
         assert_eq!(events.len(), 1);

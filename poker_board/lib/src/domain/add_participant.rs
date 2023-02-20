@@ -32,7 +32,7 @@ mod tests {
 
     #[test]
     pub fn it_should_add_a_participant() {
-        let board = Board::new("test".to_string());
+        let board = Board::new();
         let command = AddParticipantCommand {
             participant_name: "test".to_string(),
         };
