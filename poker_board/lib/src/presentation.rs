@@ -46,12 +46,12 @@ where
     }
 }
 
-pub struct Controller<Command> {
+pub struct CommandController<Command> {
     deserializer: Box<dyn CommandDeserializer<Command = Command>>,
     handler: Box<dyn CommandHandler<Command>>,
 }
 
-impl<Command> Controller<Command> {
+impl<Command> CommandController<Command> {
     pub fn new(
         handler: Box<dyn CommandHandler<Command>>,
         deserializer: Box<dyn CommandDeserializer<Command = Command>>,
@@ -118,8 +118,8 @@ mod tests {
         let deserializer =
             Box::new(|req_body: String| serde_json::from_str(&req_body).map_err(|e| e.to_string()));
 
-        let controller: Controller<AddParticipantDto> =
-            Controller::new(Box::new(mock_add_participant_use_case), deserializer);
+        let controller: CommandController<AddParticipantDto> =
+            CommandController::new(Box::new(mock_add_participant_use_case), deserializer);
 
         let req_body = r#"{"entity_id": "test-id", "name": "test-name"}"#.to_string();
 
@@ -138,8 +138,8 @@ mod tests {
         let deserializer =
             Box::new(|req_body: String| serde_json::from_str(&req_body).map_err(|e| e.to_string()));
 
-        let controller: Controller<AddParticipantDto> =
-            Controller::new(Box::new(mock_add_participant_use_case), deserializer);
+        let controller: CommandController<AddParticipantDto> =
+            CommandController::new(Box::new(mock_add_participant_use_case), deserializer);
 
         let req_body = r#"{"entity_id": "test-id"}"#.to_string();
 
@@ -158,8 +158,8 @@ mod tests {
         let deserializer =
             Box::new(|req_body: String| serde_json::from_str(&req_body).map_err(|e| e.to_string()));
 
-        let controller: Controller<AddParticipantDto> =
-            Controller::new(Box::new(mock_add_participant_use_case), deserializer);
+        let controller: CommandController<AddParticipantDto> =
+            CommandController::new(Box::new(mock_add_participant_use_case), deserializer);
 
         let req_body = r#"{"entity_id": "test-id", "name": "test-name"}"#.to_string();
 
