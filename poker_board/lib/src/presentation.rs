@@ -60,7 +60,7 @@ impl Into<CommandDto<add_participant::AddParticipantCommand>> for AddParticipant
     }
 }
 
-struct Controller<Command> {
+pub struct Controller<Command> {
     deserializer: Box<dyn CommandDeserializer<Command = Command>>,
     handler: Box<dyn CommandHandler<Command>>,
 }
@@ -76,7 +76,7 @@ impl<Command> Controller<Command> {
         }
     }
 
-    pub async fn add_participant(&self, req_body: String) -> HttpResponse {
+    pub async fn handle(&self, req_body: String) -> HttpResponse {
         match self
             .deserializer
             .deserialize_command(req_body)
@@ -135,7 +135,7 @@ mod tests {
 
         let req_body = r#"{"entity_id": "test-id", "name": "test-name"}"#.to_string();
 
-        let response = controller.add_participant(req_body).await;
+        let response = controller.handle(req_body).await;
 
         assert_eq!(response.status(), 200);
     }
@@ -155,7 +155,7 @@ mod tests {
 
         let req_body = r#"{"entity_id": "test-id"}"#.to_string();
 
-        let response = controller.add_participant(req_body).await;
+        let response = controller.handle(req_body).await;
 
         assert_eq!(response.status(), 400);
     }
@@ -175,7 +175,7 @@ mod tests {
 
         let req_body = r#"{"entity_id": "test-id", "name": "test-name"}"#.to_string();
 
-        let response = controller.add_participant(req_body).await;
+        let response = controller.handle(req_body).await;
 
         assert_eq!(response.status(), 500);
     }
