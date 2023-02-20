@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display};
 use util::{CommandDto, UseCase};
 
-trait CommandDeserializer {
+pub trait CommandDeserializer: Send + Sync {
     type Command;
     fn deserialize_command(&self, command: String) -> Result<Self::Command, String>;
 }
@@ -15,7 +15,7 @@ trait EntityCommand {
 }
 
 #[async_trait]
-trait CommandHandler<Command> {
+pub trait CommandHandler<Command>: Send + Sync {
     async fn handle_command(&self, command: Command) -> Result<(), String>;
 }
 
