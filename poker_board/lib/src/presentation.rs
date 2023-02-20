@@ -1,8 +1,9 @@
-use crate::domain::{add_participant, clear_votes};
+pub mod input;
+
 use actix_web::HttpResponse;
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
-use std::fmt::{Debug, Display};
+use serde::Serialize;
+use std::fmt::Display;
 use util::{CommandDto, UseCase};
 
 pub trait CommandDeserializer: Send + Sync {
@@ -45,32 +46,6 @@ where
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ClearVotesDto {
-    entity_id: String,
-}
-
-impl Into<CommandDto<clear_votes::ClearVotes>> for ClearVotesDto {
-    fn into(self) -> CommandDto<clear_votes::ClearVotes> {
-        CommandDto::new(self.entity_id.to_string(), clear_votes::ClearVotes {})
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct AddParticipantDto {
-    entity_id: String,
-    name: String,
-}
-
-impl Into<CommandDto<add_participant::AddParticipantCommand>> for AddParticipantDto {
-    fn into(self) -> CommandDto<add_participant::AddParticipantCommand> {
-        CommandDto::new(
-            self.entity_id,
-            add_participant::AddParticipantCommand::new(self.name),
-        )
-    }
-}
-
 pub struct Controller<Command> {
     deserializer: Box<dyn CommandDeserializer<Command = Command>>,
     handler: Box<dyn CommandHandler<Command>>,
@@ -108,6 +83,8 @@ impl<Command> Controller<Command> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::add_participant;
+    use crate::presentation::input::AddParticipantDto;
     use async_trait::async_trait;
     use mockall::{mock, predicate};
 
