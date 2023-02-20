@@ -45,6 +45,21 @@ pub trait FromEventStream {
     fn from_event_stream(entity: String, events: Vec<Self::Event>) -> Self;
 }
 
+impl<T, E> FromEventStream for T
+where
+    T: HandleEvent<Event = E> + Default,
+{
+    type Event = E;
+
+    fn from_event_stream(_: String, events: Vec<Self::Event>) -> Self {
+        let mut state = Self::default();
+        for event in events {
+            state.apply(event);
+        }
+        state
+    }
+}
+
 pub trait HandleCommand<Command> {
     type Event;
     fn execute(&self, command: Command) -> Vec<Self::Event>;
