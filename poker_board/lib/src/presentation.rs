@@ -1,4 +1,4 @@
-use crate::domain::add_participant;
+use crate::domain::{add_participant, clear_votes};
 use actix_web::HttpResponse;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -42,6 +42,17 @@ where
     type Command = T;
     fn deserialize_command(&self, command: String) -> Result<Self::Command, String> {
         (self)(command).map_err(|e| e.to_string())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClearVotesDto {
+    entity_id: String,
+}
+
+impl Into<CommandDto<clear_votes::ClearVotes>> for ClearVotesDto {
+    fn into(self) -> CommandDto<clear_votes::ClearVotes> {
+        CommandDto::new(self.entity_id.to_string(), clear_votes::ClearVotes {})
     }
 }
 
