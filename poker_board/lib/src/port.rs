@@ -11,6 +11,22 @@ pub enum ModifyError {
     },
 }
 
+impl core::fmt::Display for ModifyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ModifyError::ConnectionError(msg) => write!(f, "ConnectionError: {}", msg),
+            ModifyError::UnableToCompleteError(msg) => {
+                write!(f, "UnableToCompleteError: {}", msg)
+            }
+            ModifyError::EventLogChangedError { original, actual } => write!(
+                f,
+                "EventLogChangedError: original: {:?}, actual: {:?}",
+                original, actual
+            ),
+        }
+    }
+}
+
 type ModifyFn<'a, T> = Box<dyn Fn(T) -> T + Send + Sync + 'a>;
 
 pub struct Attempt<'a, T>
