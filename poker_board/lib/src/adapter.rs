@@ -5,18 +5,18 @@ use std::cell::Cell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-struct Store {
+pub struct Store {
     store: HashMap<String, Vec<BoardModifiedEvent>>,
 }
 
 impl Store {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             store: HashMap::new(),
         }
     }
 
-    fn get(&self, key: &str) -> Option<&Vec<BoardModifiedEvent>> {
+    pub fn get(&self, key: &str) -> Option<&Vec<BoardModifiedEvent>> {
         self.store.get(key)
     }
 
@@ -25,13 +25,19 @@ impl Store {
     }
 }
 
-struct InMemoryModifyEntityAdapter {
+pub struct InMemoryModifyEntityAdapter {
     store: Arc<Mutex<Store>>,
     try_times: u8,
 }
 
+impl Default for InMemoryModifyEntityAdapter {
+    fn default() -> Self {
+        Self::new(None, None)
+    }
+}
+
 impl InMemoryModifyEntityAdapter {
-    fn new(try_times: Option<u8>, store: Option<Arc<Mutex<Store>>>) -> Self {
+    pub fn new(try_times: Option<u8>, store: Option<Arc<Mutex<Store>>>) -> Self {
         Self {
             store: store.unwrap_or(Arc::new(Mutex::new(Store::new()))),
             try_times: try_times.unwrap_or(3),
