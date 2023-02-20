@@ -20,14 +20,17 @@ pub trait CommandHandler<Command>: Send + Sync {
 }
 
 #[async_trait]
-impl<T, U, C> CommandHandler<U> for T
+impl<T, U, C, E> CommandHandler<U> for T
 where
     U: Into<CommandDto<C>> + Send + Sync + 'static,
-    T: UseCase<Command = C, Error = String>,
+    T: UseCase<Command = C, Error = E>,
     C: Send + Sync,
+    E: Display,
 {
     async fn handle_command(&self, command: U) -> Result<(), String> {
-        self.execute(command.into()).await
+        self.execute(command.into())
+            .await
+            .map_err(|e| e.to_string())
     }
 }
 
