@@ -4,9 +4,18 @@ use crate::port::{Attempt, ModifyEntityPort, ModifyError};
 use async_trait::async_trait;
 use util::{CommandDto, FromEventStream, HandleCommand, UseCase};
 
-struct ModifyingService<'a, Command, Event> {
+pub struct ModifyingService<'a, Command, Event> {
     phantom: std::marker::PhantomData<Command>,
     modify_port: Box<dyn ModifyEntityPort<'a, Vec<Event>>>,
+}
+
+impl<'a, Command, Event> ModifyingService<'a, Command, Event> {
+    pub fn new(modify_port: Box<dyn ModifyEntityPort<'a, Vec<Event>>>) -> Self {
+        Self {
+            phantom: std::marker::PhantomData,
+            modify_port,
+        }
+    }
 }
 
 #[async_trait]
