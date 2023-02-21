@@ -62,3 +62,11 @@ where
         attempt: Attempt<'a, T>,
     ) -> Result<(), ModifyError>;
 }
+
+#[async_trait]
+pub trait GetEntityPort<T>: Send + Sync
+where
+    T: Send + Sync,
+{
+    async fn get_entity(&self, entity: String) -> Result<T, ModifyError>;
+}
