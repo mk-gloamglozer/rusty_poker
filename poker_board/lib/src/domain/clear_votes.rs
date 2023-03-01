@@ -1,7 +1,9 @@
 use super::*;
+use serde::Deserialize;
+use util::command::Command;
 use util::HandleCommand;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Deserialize, Debug, Clone, PartialEq)]
 pub struct ClearVotes {}
 
 impl ClearVotes {
@@ -15,6 +17,15 @@ impl HandleCommand<ClearVotes> for Board {
 
     fn execute(&self, _command: ClearVotes) -> Vec<Self::Event> {
         vec![BoardModifiedEvent::VotesCleared]
+    }
+}
+
+impl Command for ClearVotes {
+    type Entity = Board;
+    type Event = BoardModifiedEvent;
+
+    fn apply(&self, entity: Self::Entity) -> Vec<Self::Event> {
+        entity.execute(self.clone())
     }
 }
 

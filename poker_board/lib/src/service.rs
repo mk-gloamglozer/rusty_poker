@@ -1,6 +1,6 @@
 use crate::domain::Board;
 use crate::event::BoardModifiedEvent;
-use crate::port::{Attempt, ModifyEntityPort, ModifyError};
+use crate::port::{Attempt, GetEntityPort, ModifyEntityPort, ModifyError};
 use async_trait::async_trait;
 use util::{CommandDto, FromEventStream, HandleCommand, UseCase};
 
@@ -37,6 +37,10 @@ where
 
         self.modify_port.modify_entity(entity, attempt).await
     }
+}
+
+pub struct QueryingService<Event> {
+    get_port: Box<dyn GetEntityPort<Vec<Event>>>,
 }
 
 #[cfg(test)]

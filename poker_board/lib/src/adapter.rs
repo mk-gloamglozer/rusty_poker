@@ -1,16 +1,22 @@
 use crate::event::BoardModifiedEvent;
 use crate::port::{Attempt, ModifyEntityPort, ModifyError};
 use async_trait::async_trait;
-use std::cell::Cell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use util::store::{EventStore, EventStreamModifier};
 
 pub struct Store {
     store: HashMap<String, Vec<BoardModifiedEvent>>,
 }
 
+type StoreMutex = Arc<Mutex<Store>>;
+
+pub fn mutex_store() -> StoreMutex {
+    Arc::new(Mutex::new(Store::new()))
+}
+
 impl Store {
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self {
             store: HashMap::new(),
         }
@@ -25,6 +31,32 @@ impl Store {
     }
 }
 
+pub struct AdapterConfig {
+    store: StoreMutex,
+    try_times: u8,
+}
+
+impl Default for AdapterConfig {
+    fn default() -> Self {
+        Self {
+            store: mutex_store(),
+            try_times: 3,
+        }
+    }
+}
+
+impl AdapterConfig {
+    pub fn with_store(mut self, store: StoreMutex) -> Self {
+        self.store = store;
+        self
+    }
+
+    pub fn with_try_times(mut self, try_times: u8) -> Self {
+        self.try_times = try_times;
+        self
+    }
+}
+
 pub struct InMemoryModifyEntityAdapter {
     store: Arc<Mutex<Store>>,
     try_times: u8,
@@ -32,15 +64,15 @@ pub struct InMemoryModifyEntityAdapter {
 
 impl Default for InMemoryModifyEntityAdapter {
     fn default() -> Self {
-        Self::new(None, None)
+        Self::new(AdapterConfig::default())
     }
 }
 
 impl InMemoryModifyEntityAdapter {
-    pub fn new(try_times: Option<u8>, store: Option<Arc<Mutex<Store>>>) -> Self {
+    pub fn new(config: AdapterConfig) -> Self {
         Self {
-            store: store.unwrap_or(Arc::new(Mutex::new(Store::new()))),
-            try_times: try_times.unwrap_or(3),
+            store: config.store,
+            try_times: config.try_times,
         }
     }
 
@@ -52,16 +84,16 @@ impl InMemoryModifyEntityAdapter {
      * If it fails to modify the store because the event log has changed, it will return an EventLogChangedError.
      * If it succeeds to modify the store, it will return Ok(()).
      */
-    fn modify(
+    fn _modify(
         &self,
-        entity: String,
-        attempt: Attempt<Vec<BoardModifiedEvent>>,
+        entity: &String,
+        modify: &dyn EventStreamModifier<BoardModifiedEvent>,
         count: u8,
-    ) -> Result<(), ModifyError> {
+    ) -> Result<Vec<BoardModifiedEvent>, ModifyError> {
         match self.store.clone().lock() {
             Ok(mut store) => {
                 let events = store.get(&entity).unwrap_or(&vec![]).clone();
-                let updated_events = attempt.attempt(events.clone());
+                let updated_events = modify.modify(events.clone());
                 for i in 0..events.len() {
                     if updated_events.get(i) != events.get(i) {
                         return Err(ModifyError::EventLogChangedError {
@@ -70,12 +102,12 @@ impl InMemoryModifyEntityAdapter {
                         });
                     }
                 }
-                store.insert(entity.clone(), attempt.attempt(events));
-                Ok(())
+                store.insert(entity.clone(), updated_events.clone());
+                Ok(updated_events)
             }
             Err(_) => {
                 if count < self.try_times {
-                    return self.modify(entity, attempt, count + 1);
+                    return self._modify(entity, modify, count + 1);
                 }
                 return Err(ModifyError::ConnectionError(
                     "Unable to lock store".to_string(),
@@ -86,13 +118,17 @@ impl InMemoryModifyEntityAdapter {
 }
 
 #[async_trait]
-impl<'a> ModifyEntityPort<'a, Vec<BoardModifiedEvent>> for InMemoryModifyEntityAdapter {
-    async fn modify_entity(
+impl EventStore for InMemoryModifyEntityAdapter {
+    type Event = BoardModifiedEvent;
+    type Error = ModifyError;
+    type Key = String;
+
+    async fn modify(
         &self,
-        entity: String,
-        attempt: Attempt<'a, Vec<BoardModifiedEvent>>,
-    ) -> Result<(), ModifyError> {
-        self.modify(entity, attempt, 0)
+        key: &Self::Key,
+        event: &dyn EventStreamModifier<Self::Event>,
+    ) -> Result<Vec<Self::Event>, Self::Error> {
+        self._modify(key, event, 0)
     }
 }
 
@@ -111,8 +147,8 @@ mod tests {
             vec![BoardModifiedEvent::VotesCleared],
         );
 
-        let in_memory_modify_entity_adapter =
-            InMemoryModifyEntityAdapter::new(None, Some(store.clone()));
+        let config = AdapterConfig::default().with_store(store.clone());
+        let in_memory_modify_entity_adapter = InMemoryModifyEntityAdapter::new(config);
 
         let id = "test-id".to_string();
 
@@ -129,7 +165,7 @@ mod tests {
         };
 
         in_memory_modify_entity_adapter
-            .modify_entity(id.to_string(), Attempt::new(map_fn))
+            .modify(&id, &map_fn)
             .await
             .unwrap();
 
@@ -144,8 +180,8 @@ mod tests {
             vec![BoardModifiedEvent::VotesCleared],
         );
 
-        let in_memory_modify_entity_adapter =
-            InMemoryModifyEntityAdapter::new(None, Some(store.clone()));
+        let config = AdapterConfig::default().with_store(store.clone());
+        let in_memory_modify_entity_adapter = InMemoryModifyEntityAdapter::new(config);
 
         let id = "test-id".to_string();
 
@@ -160,7 +196,7 @@ mod tests {
         };
 
         let err = in_memory_modify_entity_adapter
-            .modify_entity(id.to_string(), Attempt::new(map_fn))
+            .modify(&id, &map_fn)
             .await
             .unwrap_err();
 
@@ -184,18 +220,15 @@ mod tests {
             vec![BoardModifiedEvent::VotesCleared],
         );
 
-        let in_memory_modify_entity_adapter =
-            InMemoryModifyEntityAdapter::new(None, Some(store.clone()));
+        let config = AdapterConfig::default().with_store(store.clone());
+        let in_memory_modify_entity_adapter = InMemoryModifyEntityAdapter::new(config);
 
         let id = "test-id".to_string();
 
-        let participant_name = "participant_name".to_string();
-        let add_participant_command = AddParticipantCommand::new(participant_name.clone());
-
-        let map_fn = |events: Vec<BoardModifiedEvent>| vec![];
+        let map_fn = |_: Vec<BoardModifiedEvent>| vec![];
 
         let err = in_memory_modify_entity_adapter
-            .modify_entity(id.to_string(), Attempt::new(map_fn))
+            .modify(&id, &map_fn)
             .await
             .unwrap_err();
 

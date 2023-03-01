@@ -1,6 +1,7 @@
 use crate::event::BoardModifiedEvent;
 use std::collections::HashMap;
-use util::{FromEventStream, HandleEvent};
+use util::use_case::HandleEvent;
+use util::FromEventStream;
 
 #[derive(Default, Debug, PartialEq, Clone)]
 pub struct Board {

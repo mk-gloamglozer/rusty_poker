@@ -1,3 +1,8 @@
+pub mod command;
+pub mod store;
+pub mod use_case;
+
+use crate::use_case::HandleEvent;
 use async_trait::async_trait;
 use std::ops::Deref;
 
@@ -33,11 +38,6 @@ where
         self.state.apply(event);
         self
     }
-}
-
-pub trait HandleEvent {
-    type Event;
-    fn apply(&mut self, event: Self::Event);
 }
 
 pub trait FromEventStream {
@@ -82,4 +82,11 @@ pub trait UseCase: Send + Sync {
     type Error;
     type Command;
     async fn execute(&self, command_dto: CommandDto<Self::Command>) -> Result<(), Self::Error>;
+}
+
+#[async_trait]
+pub trait Query: Send + Sync {
+    type Error;
+    type Response;
+    async fn execute(&self, entity: String) -> Result<Self::Response, Self::Error>;
 }
