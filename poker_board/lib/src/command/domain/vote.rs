@@ -1,5 +1,5 @@
 use super::*;
-use crate::event::ParticipantNotVotedReason;
+use crate::command::event::ParticipantNotVotedReason;
 use util::HandleCommand;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -47,6 +47,7 @@ impl HandleCommand<ParticipantVote> for Board {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use util::use_case::EventSourced;
 
     #[test]
     pub fn it_should_vote_for_a_participant() {
@@ -54,7 +55,7 @@ mod tests {
             participant_id: "test".to_string(),
             participant_name: "test".to_string(),
         }];
-        let board = Board::from_event_stream("test".to_string(), events);
+        let board = Board::source(&events);
         let command = ParticipantVote {
             participant_id: board.participants.keys().next().unwrap().to_string(),
             card_set_id: "test".to_string(),

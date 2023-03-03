@@ -1,5 +1,5 @@
 use super::*;
-use crate::event::ParticipantNotRemovedReason;
+use crate::command::event::ParticipantNotRemovedReason;
 use util::HandleCommand;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -33,6 +33,7 @@ impl HandleCommand<RemoveParticipantCommand> for Board {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use util::use_case::EventSourced;
 
     #[test]
     pub fn it_should_remove_a_participant() {
@@ -41,7 +42,7 @@ mod tests {
             participant_name: "test".to_string(),
         }];
 
-        let board = Board::from_event_stream("test".to_string(), events);
+        let board = Board::source(&events);
         let command = RemoveParticipantCommand {
             participant_id: board.participants.keys().next().unwrap().to_string(),
         };

@@ -1,15 +1,15 @@
 use crate::command::Command;
-use crate::store::EventStore;
-use serde::Deserialize;
+use crate::transaction::{EventTransactionStore, Transaction};
+use std::fmt::Display;
 
 pub trait EventSourced {
     type Event;
-    fn source(events: Vec<Self::Event>) -> Self;
+    fn source(events: &Vec<Self::Event>) -> Self;
 }
 
 pub trait HandleEvent {
     type Event;
-    fn apply(&mut self, event: Self::Event);
+    fn apply(&mut self, event: &Self::Event);
 }
 
 impl<T, E> EventSourced for T
@@ -18,7 +18,7 @@ where
 {
     type Event = E;
 
-    fn source(events: Vec<Self::Event>) -> Self {
+    fn source(events: &Vec<Self::Event>) -> Self {
         let mut state = Self::default();
         for event in events {
             state.apply(event);
@@ -27,53 +27,67 @@ where
     }
 }
 
-pub trait ResponseHandler<Event>: Send + Sync {
-    fn handle(&self, events: Vec<Event>) -> Result<(), String>;
+pub struct UseCase<Event, Entity, Key, Error> {
+    transaction:
+        Box<dyn EventTransactionStore<Event = Event, Entity = Entity, Key = Key, Error = Error>>,
 }
 
-impl<T, Event> ResponseHandler<Event> for T
+impl<Event, Entity, Key, Error> UseCase<Event, Entity, Key, Error>
 where
-    T: Fn(Vec<Event>) -> Result<(), String> + Send + Sync + 'static,
+    Key: Send + Sync,
+    Entity: EventSourced<Event = Event> + Default + Send + Sync,
+    Event: Send + Sync,
+    Error: Display + Send + Sync,
 {
-    fn handle(&self, events: Vec<Event>) -> Result<(), String> {
-        (self)(events)
-    }
-}
-
-pub struct Handler<'a, Event, Error> {
-    store: Box<dyn EventStore<Key = String, Event = Event, Error = Error> + 'a>,
-    response_handler: Box<dyn ResponseHandler<Event> + 'a>,
-}
-
-impl<'a, Event, Error> Handler<'a, Event, Error> {
-    pub fn new<Store, RHandler>(store: Store, response_handler: RHandler) -> Self
+    pub fn new<T>(transaction: T) -> Self
     where
-        Store: EventStore<Key = String, Event = Event, Error = Error> + 'a,
-        RHandler: ResponseHandler<Event> + 'a,
+        T: EventTransactionStore<Event = Event, Entity = Entity, Key = Key, Error = Error>
+            + 'static,
     {
         Self {
-            store: Box::new(store),
-            response_handler: Box::new(response_handler),
+            transaction: Box::new(transaction),
         }
+    }
+
+    pub async fn execute<Cmd>(&self, command: &Cmd, entity_id: &Key) -> Result<Vec<Event>, String>
+    where
+        Cmd: Command<Entity = Entity, Event = Event> + Send + Sync,
+        Cmd::Entity: EventSourced<Event = Event>,
+    {
+        let command = UseCaseCommand::new(command, entity_id);
+        let result = self.transaction.perform_modification(&command).await;
+        result.map_err(|e| e.to_string())
     }
 }
 
-impl<'a, Event, Error> Handler<'a, Event, Error>
+struct UseCaseCommand<Command, Key> {
+    command: Command,
+    key: Key,
+}
+
+impl<Command, Key> UseCaseCommand<Command, Key> {
+    pub fn new(command: Command, key: Key) -> Self {
+        Self { command, key }
+    }
+}
+
+#[async_trait::async_trait]
+impl<Entity, Event, Command, Key, Error> Transaction<Entity, Event, Key, Error>
+    for UseCaseCommand<&Command, &Key>
 where
-    Error: std::fmt::Display,
+    Entity: EventSourced<Event = Event> + Send + Sync,
+    Error: Send + Sync,
+    Event: Send + Sync,
+    Key: Send + Sync,
+    Command: self::Command<Entity = Entity, Event = Event> + Send + Sync,
 {
-    pub async fn execute<Cmd>(&self, command: &Cmd, entity_id: &String) -> Result<(), String>
-    where
-        Cmd: Command<Event = Event> + Send + Sync,
-        Cmd::Entity: EventSourced<Event = Event>,
-    {
-        self.store
-            .modify(entity_id, &|events: Vec<Event>| -> Vec<Event> {
-                let entity = Cmd::Entity::source(events);
-                command.apply(entity)
-            })
-            .await
-            .map_err(|e| e.to_string())
-            .and_then(|events| self.response_handler.handle(events))
+    async fn modify(
+        &self,
+        load_entity: &dyn super::transaction::LoadEntity<Entity, Key = Key, Error = Error>,
+        save_events: &dyn super::transaction::SaveEvents<Event, Key = Key, Error = Error>,
+    ) -> Result<Vec<Event>, Error> {
+        let entity = load_entity.load(&self.key).await?;
+        let events = self.command.apply(entity);
+        save_events.save(&self.key, events).await
     }
 }

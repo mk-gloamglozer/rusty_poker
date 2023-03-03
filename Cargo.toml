@@ -1,7 +1,4 @@
 [workspace]
-name = "rusty_poker"
-version = "0.1.0"
-edition = "2021"
 members = ['poker_board/lib', 'poker_board/bin', 'util']
 
 

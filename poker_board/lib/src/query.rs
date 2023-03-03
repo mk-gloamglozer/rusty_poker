@@ -1,7 +1,6 @@
-use crate::event::BoardModifiedEvent;
+use crate::command::event::BoardModifiedEvent;
 use std::collections::HashMap;
 use util::use_case::HandleEvent;
-use util::FromEventStream;
 
 #[derive(Default, Debug, PartialEq, Clone)]
 pub struct Board {
@@ -46,17 +45,18 @@ impl Vote {
 impl HandleEvent for Board {
     type Event = BoardModifiedEvent;
 
-    fn apply(&mut self, event: Self::Event) {
+    fn apply(&mut self, event: &Self::Event) {
         match event {
             BoardModifiedEvent::ParticipantAdded {
                 participant_id,
                 participant_name,
             } => {
-                let participant = Participant::new(participant_name);
-                self.participants.insert(participant_id, participant);
+                let participant = Participant::new(participant_name.clone());
+                self.participants
+                    .insert(participant_id.clone(), participant);
             }
             BoardModifiedEvent::ParticipantRemoved { participant_id } => {
-                self.participants.remove(&participant_id);
+                self.participants.remove(participant_id);
             }
             BoardModifiedEvent::ParticipantCouldNotBeRemoved { .. } => {}
             BoardModifiedEvent::ParticipantVoted {
@@ -64,8 +64,8 @@ impl HandleEvent for Board {
                 card_set_id,
                 card_id,
             } => {
-                if let Some(participant) = self.participants.get_mut(&participant_id) {
-                    participant.vote = Some(Vote::new(card_set_id, card_id));
+                if let Some(participant) = self.participants.get_mut(participant_id) {
+                    participant.vote = Some(Vote::new(card_set_id.clone(), card_id.clone()));
                 }
             }
             BoardModifiedEvent::ParticipantCouldNotVote { .. } => {}
@@ -81,7 +81,8 @@ impl HandleEvent for Board {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event::{ParticipantNotRemovedReason, ParticipantNotVotedReason};
+    use crate::command::event::{ParticipantNotRemovedReason, ParticipantNotVotedReason};
+    use util::use_case::EventSourced;
 
     #[test]
     pub fn it_should_add_a_participant() {
@@ -90,7 +91,7 @@ mod tests {
             participant_id: "test".to_string(),
             participant_name: "test".to_string(),
         };
-        board.apply(event);
+        board.apply(&event);
         assert_eq!(board.participants.len(), 1);
     }
 
@@ -101,11 +102,11 @@ mod tests {
             participant_id: "test".to_string(),
             participant_name: "test".to_string(),
         };
-        board.apply(event);
+        board.apply(&event);
         let event = BoardModifiedEvent::ParticipantRemoved {
             participant_id: "test".to_string(),
         };
-        board.apply(event);
+        board.apply(&event);
         assert_eq!(board.participants.len(), 0);
     }
 
@@ -116,13 +117,13 @@ mod tests {
             participant_id: "test".to_string(),
             participant_name: "test".to_string(),
         };
-        board.apply(event);
+        board.apply(&event);
         let event = BoardModifiedEvent::ParticipantVoted {
             participant_id: "test".to_string(),
             card_set_id: "test".to_string(),
             card_id: "test".to_string(),
         };
-        board.apply(event);
+        board.apply(&event);
         assert_eq!(board.participants.len(), 1);
         assert!(board.participants.get("test").unwrap().vote.is_some());
     }
@@ -135,7 +136,7 @@ mod tests {
             participant_id: "test".to_string(),
             reason: ParticipantNotVotedReason::DoesNotExist,
         };
-        board.apply(event);
+        board.apply(&event);
         assert_eq!(board, expected);
     }
 
@@ -146,15 +147,15 @@ mod tests {
             participant_id: "test".to_string(),
             participant_name: "test".to_string(),
         };
-        board.apply(event);
+        board.apply(&event);
         let event = BoardModifiedEvent::ParticipantVoted {
             participant_id: "test".to_string(),
             card_set_id: "test".to_string(),
             card_id: "test".to_string(),
         };
-        board.apply(event);
+        board.apply(&event);
         let event = BoardModifiedEvent::VotesCleared;
-        board.apply(event);
+        board.apply(&event);
         assert_eq!(board.participants.len(), 1);
         assert!(board.participants.get("test").unwrap().vote.is_none());
     }
@@ -166,7 +167,7 @@ mod tests {
             participant_id: "test".to_string(),
             participant_name: "test".to_string(),
         };
-        board.apply(event);
+        board.apply(&event);
 
         let expected = board.clone();
 
@@ -174,7 +175,7 @@ mod tests {
             participant_id: "test".to_string(),
             reason: ParticipantNotRemovedReason::DoesNotExist,
         };
-        board.apply(event);
+        board.apply(&event);
         assert_eq!(board, expected);
     }
 
@@ -191,7 +192,7 @@ mod tests {
                 card_id: "test".to_string(),
             },
         ];
-        let board = Board::from_event_stream("test".to_string(), events);
+        let board = Board::source(&events);
         assert_eq!(board.participants.len(), 1);
         assert!(board.participants.get("test").unwrap().vote.is_some());
     }

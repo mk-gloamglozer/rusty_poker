@@ -1,22 +1,32 @@
 use actix_web;
-use actix_web::dev::HttpServiceFactory;
-use actix_web::web::{post, Data, Path};
-use actix_web::{web, App, HttpResponse, HttpServer};
-use poker_board::domain::clear_votes::ClearVotes;
-use poker_board::event::BoardModifiedEvent;
-use poker_board::port::ModifyError;
-use poker_board::presentation::input::ClearVotesDto;
-use poker_board::presentation::CommandController;
-use std::sync::{Arc, Mutex};
+use actix_web::web::{Data, Path};
+use actix_web::{App, HttpResponse, HttpServer};
+use poker_board::command::adapter::{basic_transaction_store, in_memory_store};
+use poker_board::command::domain::clear_votes::ClearVotes;
+use poker_board::command::domain::Board;
+use poker_board::command::event::BoardModifiedEvent;
+use std::fmt::Debug;
 use util;
-use util::command::Input;
-use util::store::EventStore;
-use util::use_case;
-use util::use_case::{Handler, ResponseHandler};
+use util::presentation::Input;
+use util::use_case::UseCase;
+
+trait Log {
+    fn log(self) -> Self;
+}
+
+impl<T> Log for T
+where
+    T: Debug,
+{
+    fn log(self) -> Self {
+        log::info!("Log: {:?}", self);
+        self
+    }
+}
 
 #[actix_web::post("/clear-votes")]
-async fn clear_votes<'a>(
-    data: Data<Handler<'a, BoardModifiedEvent, ModifyError>>,
+async fn clear_votes(
+    data: Data<UseCase<BoardModifiedEvent, Board, String, String>>,
     body: String,
 ) -> HttpResponse {
     let body = match serde_json::from_str::<Input<ClearVotes>>(&body) {
@@ -29,6 +39,7 @@ async fn clear_votes<'a>(
 
     let response = data.execute(body.command(), body.id()).await;
     response
+        .log()
         .map(|_| HttpResponse::Ok().finish())
         .unwrap_or_else(|_| HttpResponse::InternalServerError().finish())
 }
@@ -42,51 +53,18 @@ async fn get_events(data: Data<dyn Qry>, path: Path<String>) -> HttpResponse {
     data.query_for(path.into_inner())
 }
 
-struct Query {
-    store: Arc<Mutex<poker_board::adapter::Store>>,
-}
-
-impl Query {
-    fn query_for(&self, id: String) -> HttpResponse {
-        let events = self.store.lock().unwrap().get(&id).cloned();
-        match events {
-            Some(events) => {
-                let events = events
-                    .iter()
-                    .map(|event| event.to_string())
-                    .collect::<Vec<String>>();
-                HttpResponse::Ok().json(events)
-            }
-            None => HttpResponse::NotFound().finish(),
-        }
-    }
-}
-
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     std::env::set_var("RUST_LOG", "debug");
     env_logger::init();
 
-    let adapter = poker_board::adapter::InMemoryModifyEntityAdapter::default();
+    let store = in_memory_store();
+    let transactor = basic_transaction_store(store);
 
-    let response_handler = |events: Vec<BoardModifiedEvent>| -> Result<(), String> { Ok(()) };
-
-    let handler = Handler::new(adapter, response_handler);
-
-    let app_data = Data::new(handler);
-    // let query = actix_web::web::Data::new(query);
-    //
-    HttpServer::new(move || {
-        App::new()
-            .app_data(app_data.clone())
-            .service(clear_votes)
-            .route("/random", web::get().to(random))
-    })
-    .bind(("127.0.0.1", 8080))?
-    .run()
-    .await
-}
-
-async fn random() -> HttpResponse {
-    HttpResponse::Ok().body("random")
+    let use_case = UseCase::new(transactor);
+    let app_data = Data::new(use_case);
+    HttpServer::new(move || App::new().app_data(app_data.clone()).service(clear_votes))
+        .bind(("127.0.0.1", 8080))?
+        .run()
+        .await
 }

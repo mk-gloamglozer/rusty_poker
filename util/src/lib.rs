@@ -1,5 +1,7 @@
 pub mod command;
+pub mod presentation;
 pub mod store;
+pub mod transaction;
 pub mod use_case;
 
 use crate::use_case::HandleEvent;
@@ -35,7 +37,7 @@ where
     T: HandleEvent<Event = E>,
 {
     pub fn apply(mut self, event: E) -> Self {
-        self.state.apply(event);
+        self.state.apply(&event);
         self
     }
 }
@@ -54,7 +56,7 @@ where
     fn from_event_stream(_: String, events: Vec<Self::Event>) -> Self {
         let mut state = Self::default();
         for event in events {
-            state.apply(event);
+            state.apply(&event);
         }
         state
     }
