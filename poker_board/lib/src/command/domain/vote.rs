@@ -1,39 +1,38 @@
 use super::*;
 use crate::command::event::ParticipantNotVotedReason;
+use serde::Deserialize;
+use util::command::Command;
 use util::HandleCommand;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Deserialize)]
 pub struct ParticipantVote {
     pub participant_id: String,
-    pub card_set_id: String,
-    pub card_id: String,
+    pub vote: u8,
 }
 
 impl ParticipantVote {
-    pub fn new(participant_id: String, card_set_id: String, card_id: String) -> Self {
+    pub fn new(participant_id: String, vote: u8) -> Self {
         Self {
             participant_id,
-            card_set_id,
-            card_id,
+            vote,
         }
     }
 }
 
-impl HandleCommand<ParticipantVote> for Board {
+impl Command for ParticipantVote {
     type Event = BoardModifiedEvent;
+    type Entity = Board;
 
-    fn execute(&self, command: ParticipantVote) -> Vec<Self::Event> {
+    fn apply(&self, entity: Self::Entity) -> Vec<Self::Event> {
         let ParticipantVote {
             participant_id,
-            card_set_id,
-            card_id,
-        } = command;
+            vote,
+        } = self.clone();
 
-        if self.participants.contains_key(&participant_id) {
+        if entity.participants.contains_key(&participant_id) {
             vec![BoardModifiedEvent::ParticipantVoted {
                 participant_id,
-                card_set_id,
-                card_id,
+                vote,
             }]
         } else {
             vec![BoardModifiedEvent::ParticipantCouldNotVote {
@@ -58,17 +57,15 @@ mod tests {
         let board = Board::source(&events);
         let command = ParticipantVote {
             participant_id: board.participants.keys().next().unwrap().to_string(),
-            card_set_id: "test".to_string(),
-            card_id: "test".to_string(),
+            vote: 1,
         };
-        let events = board.execute(command);
+        let events = command.apply(board);
         assert_eq!(events.len(), 1);
         assert_eq!(
             events[0],
             BoardModifiedEvent::ParticipantVoted {
                 participant_id: "test".to_string(),
-                card_set_id: "test".to_string(),
-                card_id: "test".to_string(),
+                vote: 1,
             }
         );
     }
@@ -78,10 +75,9 @@ mod tests {
         let board = Board::new();
         let command = ParticipantVote {
             participant_id: "test".to_string(),
-            card_set_id: "test".to_string(),
-            card_id: "test".to_string(),
+            vote: 1,
         };
-        let events = board.execute(command);
+        let events = command.apply(board);
         assert_eq!(events.len(), 1);
         assert_eq!(
             events[0],

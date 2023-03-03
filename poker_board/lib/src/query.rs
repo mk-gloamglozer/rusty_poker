@@ -1,8 +1,9 @@
 use crate::command::event::BoardModifiedEvent;
+use serde::Serialize;
 use std::collections::HashMap;
 use util::use_case::HandleEvent;
 
-#[derive(Default, Debug, PartialEq, Clone)]
+#[derive(Default, Debug, PartialEq, Clone, Serialize)]
 pub struct Board {
     participants: HashMap<String, Participant>,
 }
@@ -15,30 +16,15 @@ impl Board {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize)]
 pub struct Participant {
     name: String,
-    vote: Option<Vote>,
+    vote: Option<u8>,
 }
 
 impl Participant {
     pub fn new(name: String) -> Self {
         Self { name, vote: None }
-    }
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct Vote {
-    card_set_id: String,
-    card_id: String,
-}
-
-impl Vote {
-    pub fn new(card_set_id: String, card_id: String) -> Self {
-        Self {
-            card_set_id,
-            card_id,
-        }
     }
 }
 
@@ -61,11 +47,10 @@ impl HandleEvent for Board {
             BoardModifiedEvent::ParticipantCouldNotBeRemoved { .. } => {}
             BoardModifiedEvent::ParticipantVoted {
                 participant_id,
-                card_set_id,
-                card_id,
+                vote,
             } => {
                 if let Some(participant) = self.participants.get_mut(participant_id) {
-                    participant.vote = Some(Vote::new(card_set_id.clone(), card_id.clone()));
+                    participant.vote = Some(*vote);
                 }
             }
             BoardModifiedEvent::ParticipantCouldNotVote { .. } => {}
@@ -120,12 +105,12 @@ mod tests {
         board.apply(&event);
         let event = BoardModifiedEvent::ParticipantVoted {
             participant_id: "test".to_string(),
-            card_set_id: "test".to_string(),
-            card_id: "test".to_string(),
+            vote: 1,
         };
         board.apply(&event);
         assert_eq!(board.participants.len(), 1);
         assert!(board.participants.get("test").unwrap().vote.is_some());
+        assert_eq!(board.participants.get("test").unwrap().vote.unwrap(), 1);
     }
 
     #[test]
@@ -150,8 +135,7 @@ mod tests {
         board.apply(&event);
         let event = BoardModifiedEvent::ParticipantVoted {
             participant_id: "test".to_string(),
-            card_set_id: "test".to_string(),
-            card_id: "test".to_string(),
+            vote: 1,
         };
         board.apply(&event);
         let event = BoardModifiedEvent::VotesCleared;
@@ -188,8 +172,7 @@ mod tests {
             },
             BoardModifiedEvent::ParticipantVoted {
                 participant_id: "test".to_string(),
-                card_set_id: "test".to_string(),
-                card_id: "test".to_string(),
+                vote: 1,
             },
         ];
         let board = Board::source(&events);

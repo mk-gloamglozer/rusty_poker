@@ -15,8 +15,7 @@ pub enum BoardModifiedEvent {
     },
     ParticipantVoted {
         participant_id: String,
-        card_set_id: String,
-        card_id: String,
+        vote: u8,
     },
     ParticipantCouldNotVote {
         participant_id: String,

@@ -7,7 +7,7 @@ use util::store::{LoadEntity, SaveEntity};
 use util::transaction::{EventTransactionStore, Transaction};
 use util::use_case::EventSourced;
 
-pub struct Store {
+struct Store {
     store: HashMap<String, Vec<BoardModifiedEvent>>,
 }
 
@@ -22,37 +22,45 @@ impl Store {
         self.store.get(key)
     }
 
-    fn insert(&mut self, key: String, value: Vec<BoardModifiedEvent>) {
-        self.store.insert(key, value);
+    fn insert(&mut self, key: &String, value: Vec<BoardModifiedEvent>) {
+        self.store.insert(key.to_string(), value);
     }
 }
 
 #[derive(Clone)]
-struct MutexStore(Arc<Mutex<Store>>);
+pub struct MutexStore<Entity>(Arc<Mutex<Store>>, std::marker::PhantomData<Entity>);
 
-pub fn in_memory_store() -> impl LoadEntity<Board, Error = String, Key = String>
-       + SaveEntity<Vec<BoardModifiedEvent>, Error = String, Key = String>
-       + Send
-       + Sync
-       + Clone {
-    MutexStore(Arc::new(Mutex::new(Store::new())))
+pub fn in_memory_store<Entity>() -> MutexStore<Entity> {
+    MutexStore(Arc::new(Mutex::new(Store::new())), std::marker::PhantomData)
+}
+
+impl<Entity> MutexStore<Entity> {
+    pub fn loader_for<NewEntity>(&self) -> MutexStore<NewEntity> {
+        MutexStore(self.0.clone(), std::marker::PhantomData)
+    }
 }
 
 #[async_trait]
-impl LoadEntity<Board> for MutexStore {
+impl<Entity> LoadEntity<Entity> for MutexStore<Entity>
+where
+    Entity: EventSourced<Event = BoardModifiedEvent> + Default + Send + Sync + 'static,
+{
     type Key = String;
     type Error = String;
 
-    async fn load(&self, key: &Self::Key) -> Result<Option<Board>, Self::Error> {
+    async fn load(&self, key: &Self::Key) -> Result<Option<Entity>, Self::Error> {
         match self.0.lock().unwrap().get(key) {
-            Some(events) => Ok(Some(Board::source(events))),
+            Some(events) => Ok(Some(Entity::source(events))),
             None => Ok(None),
         }
     }
 }
 
 #[async_trait]
-impl SaveEntity<Vec<BoardModifiedEvent>> for MutexStore {
+impl<Entity> SaveEntity<Vec<BoardModifiedEvent>> for MutexStore<Entity>
+where
+    Entity: Send + Sync + 'static,
+{
     type Key = String;
     type Error = String;
 
@@ -61,7 +69,10 @@ impl SaveEntity<Vec<BoardModifiedEvent>> for MutexStore {
         key: &Self::Key,
         entity: Vec<BoardModifiedEvent>,
     ) -> Result<Vec<BoardModifiedEvent>, Self::Error> {
-        self.0.lock().unwrap().insert(key.clone(), entity.clone());
+        let mut inner = self.0.lock().unwrap();
+        let mut events = inner.get(key).cloned().unwrap_or_default();
+        events.extend(entity.clone());
+        inner.insert(key, events);
         Ok(entity)
     }
 }

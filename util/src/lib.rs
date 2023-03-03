@@ -1,5 +1,6 @@
 pub mod command;
 pub mod presentation;
+pub mod query;
 pub mod store;
 pub mod transaction;
 pub mod use_case;
