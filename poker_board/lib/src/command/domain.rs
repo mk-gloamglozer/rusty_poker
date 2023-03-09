@@ -5,7 +5,7 @@ pub mod vote;
 
 use crate::command::event::BoardModifiedEvent;
 use std::collections::HashMap;
-use util::use_case::HandleEvent;
+use util::entity::HandleEvent;
 
 #[derive(Default, Debug, PartialEq, Clone)]
 pub struct Board {
@@ -61,7 +61,7 @@ mod tests {
     use crate::command::event::{
         BoardModifiedEvent, ParticipantNotRemovedReason, ParticipantNotVotedReason,
     };
-    use util::use_case::{EventSourced, HandleEvent};
+    use util::entity::{EventSourced, HandleEvent};
 
     #[test]
     pub fn it_should_add_a_participant() {

@@ -1,11 +1,12 @@
-use crate::command::domain::Board;
+use crate::command::adapter::StoreError::CouldNotLockMutex;
 use crate::command::event::BoardModifiedEvent;
 use async_trait::async_trait;
 use std::collections::HashMap;
+use std::error::Error;
+use std::fmt::Display;
 use std::sync::{Arc, Mutex};
 use util::store::{LoadEntity, SaveEntity};
-use util::transaction::{EventTransactionStore, Transaction};
-use util::use_case::EventSourced;
+use util::transaction::retry::{Instruction, RetryStrategy};
 
 struct Store {
     store: HashMap<String, Vec<BoardModifiedEvent>>,
@@ -28,98 +29,88 @@ impl Store {
 }
 
 #[derive(Clone)]
-pub struct MutexStore<Entity>(Arc<Mutex<Store>>, std::marker::PhantomData<Entity>);
+pub struct ArcMutexStore(Arc<Mutex<Store>>);
 
-pub fn in_memory_store<Entity>() -> MutexStore<Entity> {
-    MutexStore(Arc::new(Mutex::new(Store::new())), std::marker::PhantomData)
-}
-
-impl<Entity> MutexStore<Entity> {
-    pub fn loader_for<NewEntity>(&self) -> MutexStore<NewEntity> {
-        MutexStore(self.0.clone(), std::marker::PhantomData)
+impl ArcMutexStore {
+    pub fn new() -> Self {
+        Self(Arc::new(Mutex::new(Store::new())))
     }
 }
 
-#[async_trait]
-impl<Entity> LoadEntity<Entity> for MutexStore<Entity>
-where
-    Entity: EventSourced<Event = BoardModifiedEvent> + Default + Send + Sync + 'static,
-{
-    type Key = String;
-    type Error = String;
+impl Default for ArcMutexStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-    async fn load(&self, key: &Self::Key) -> Result<Option<Entity>, Self::Error> {
-        match self.0.lock().unwrap().get(key) {
-            Some(events) => Ok(Some(Entity::source(events))),
-            None => Ok(None),
+#[derive(Debug, Clone, PartialEq)]
+enum StoreError {
+    CouldNotLockMutex,
+}
+
+impl Error for StoreError {}
+
+impl Display for StoreError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StoreError::CouldNotLockMutex => write!(f, "Could not lock mutex"),
         }
     }
 }
 
 #[async_trait]
-impl<Entity> SaveEntity<Vec<BoardModifiedEvent>> for MutexStore<Entity>
-where
-    Entity: Send + Sync + 'static,
-{
+impl LoadEntity<Vec<BoardModifiedEvent>> for ArcMutexStore {
     type Key = String;
-    type Error = String;
+    type Error = Box<dyn Error + Send + Sync>;
+
+    async fn load(&self, key: &Self::Key) -> Result<Option<Vec<BoardModifiedEvent>>, Self::Error> {
+        match self.0.lock() {
+            Ok(guard) => Ok(guard.get(key).cloned()),
+            Err(_) => Err(CouldNotLockMutex.into()),
+        }
+    }
+}
+
+#[async_trait]
+impl SaveEntity<Vec<BoardModifiedEvent>> for ArcMutexStore {
+    type Key = String;
+    type Error = Box<dyn Error + Send + Sync>;
 
     async fn save(
         &self,
         key: &Self::Key,
         entity: Vec<BoardModifiedEvent>,
     ) -> Result<Vec<BoardModifiedEvent>, Self::Error> {
-        let mut inner = self.0.lock().unwrap();
-        let mut events = inner.get(key).cloned().unwrap_or_default();
-        events.extend(entity.clone());
-        inner.insert(key, events);
-        Ok(entity)
+        match self.0.lock() {
+            Ok(mut guard) => {
+                guard.insert(key, entity.clone());
+                Ok(entity)
+            }
+            Err(_) => Err(CouldNotLockMutex.into()),
+        }
     }
 }
 
-pub struct MemoryTransactionStore<Store, Entity, Event>(
-    Store,
-    std::marker::PhantomData<(Entity, Event)>,
-);
+pub struct NoRetry;
 
-#[async_trait]
-impl<Store, Entity, Event, Key, Error> EventTransactionStore
-    for MemoryTransactionStore<Store, Entity, Event>
-where
-    Store: util::transaction::LoadEntity<Entity, Key = Key, Error = Error>
-        + util::transaction::SaveEvents<Event, Key = Key, Error = Error>
-        + Send
-        + Sync,
-    Entity: Send + Sync + 'static,
-    Event: Send + Sync + 'static,
-    Key: Send + Sync + 'static,
-    Error: Send + Sync + 'static,
-{
-    type Entity = Entity;
-    type Event = Event;
-    type Key = Key;
-    type Error = Error;
+impl NoRetry {
+    pub fn new() -> Self {
+        Self
+    }
+}
 
-    async fn perform_modification(
+impl Default for NoRetry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RetryStrategy for NoRetry {
+    fn should_retry(
         &self,
-        transaction: &dyn Transaction<Self::Entity, Self::Event, Self::Key, Self::Error>,
-    ) -> Result<Vec<Self::Event>, Self::Error> {
-        transaction.modify(&self.0, &self.0).await
+        _previous_instruction: &Option<Instruction>,
+        _retry_count: &u8,
+    ) -> Instruction {
+        Instruction::Abort
     }
-}
-
-pub fn basic_transaction_store<Store, Entity, Event, Key, Error>(
-    store: Store,
-) -> impl EventTransactionStore<Entity = Entity, Event = Event, Key = Key, Error = Error>
-where
-    Store: util::transaction::LoadEntity<Entity, Key = Key, Error = Error>
-        + util::transaction::SaveEvents<Event, Key = Key, Error = Error>
-        + Send
-        + Sync,
-    Entity: Send + Sync + 'static,
-    Event: Send + Sync + 'static,
-    Key: Send + Sync + 'static,
-    Error: Send + Sync + 'static,
-{
-    MemoryTransactionStore(store, std::marker::PhantomData)
 }

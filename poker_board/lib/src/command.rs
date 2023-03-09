@@ -23,7 +23,7 @@ impl Command for BoardCommand {
     type Entity = Board;
     type Event = BoardModifiedEvent;
 
-    fn apply(&self, entity: Self::Entity) -> Vec<Self::Event> {
+    fn apply(&self, entity: &Self::Entity) -> Vec<Self::Event> {
         match self {
             BoardCommand::AddParticipant(command) => command.apply(entity),
             BoardCommand::ClearVotes(command) => command.apply(entity),

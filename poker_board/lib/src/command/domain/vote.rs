@@ -2,7 +2,6 @@ use super::*;
 use crate::command::event::ParticipantNotVotedReason;
 use serde::Deserialize;
 use util::command::Command;
-use util::HandleCommand;
 
 #[derive(Debug, PartialEq, Clone, Deserialize)]
 pub struct ParticipantVote {
@@ -20,10 +19,10 @@ impl ParticipantVote {
 }
 
 impl Command for ParticipantVote {
-    type Event = BoardModifiedEvent;
     type Entity = Board;
+    type Event = BoardModifiedEvent;
 
-    fn apply(&self, entity: Self::Entity) -> Vec<Self::Event> {
+    fn apply(&self, entity: &Self::Entity) -> Vec<Self::Event> {
         let ParticipantVote {
             participant_id,
             vote,
@@ -59,7 +58,7 @@ mod tests {
             participant_id: board.participants.keys().next().unwrap().to_string(),
             vote: 1,
         };
-        let events = command.apply(board);
+        let events = command.apply(&board);
         assert_eq!(events.len(), 1);
         assert_eq!(
             events[0],
@@ -77,7 +76,7 @@ mod tests {
             participant_id: "test".to_string(),
             vote: 1,
         };
-        let events = command.apply(board);
+        let events = command.apply(&board);
         assert_eq!(events.len(), 1);
         assert_eq!(
             events[0],

@@ -2,7 +2,6 @@ use super::*;
 use crate::command::event::ParticipantNotRemovedReason;
 use serde::Deserialize;
 use util::command::Command;
-use util::HandleCommand;
 
 #[derive(Debug, PartialEq, Clone, Deserialize)]
 pub struct RemoveParticipantCommand {
@@ -16,10 +15,10 @@ impl RemoveParticipantCommand {
 }
 
 impl Command for RemoveParticipantCommand {
-    type Event = BoardModifiedEvent;
     type Entity = Board;
+    type Event = BoardModifiedEvent;
 
-    fn apply(&self, entity: Self::Entity) -> Vec<Self::Event> {
+    fn apply(&self, entity: &Self::Entity) -> Vec<Self::Event> {
         let RemoveParticipantCommand { participant_id } = self.clone();
 
         if !entity.participants.contains_key(&participant_id) {
@@ -49,7 +48,7 @@ mod tests {
         let command = RemoveParticipantCommand {
             participant_id: board.participants.keys().next().unwrap().to_string(),
         };
-        let events = command.apply(board);
+        let events = command.apply(&board);
         assert_eq!(events.len(), 1);
         assert_eq!(
             events[0],
@@ -65,7 +64,7 @@ mod tests {
         let command = RemoveParticipantCommand {
             participant_id: "test".to_string(),
         };
-        let events = command.apply(board);
+        let events = command.apply(&board);
         assert_eq!(events.len(), 1);
         assert_eq!(
             events[0],

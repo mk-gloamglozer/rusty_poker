@@ -1,7 +1,6 @@
 use super::*;
 use serde::Deserialize;
 use util::command::Command;
-use util::HandleCommand;
 use uuid::Uuid;
 
 #[derive(Debug, PartialEq, Clone, Deserialize)]
@@ -19,7 +18,7 @@ impl Command for AddParticipantCommand {
     type Entity = Board;
     type Event = BoardModifiedEvent;
 
-    fn apply(&self, entity: Self::Entity) -> Vec<Self::Event> {
+    fn apply(&self, _entity: &Self::Entity) -> Vec<Self::Event> {
         let AddParticipantCommand { participant_name } = self;
 
         vec![BoardModifiedEvent::ParticipantAdded {
@@ -39,7 +38,7 @@ mod tests {
         let command = AddParticipantCommand {
             participant_name: "test".to_string(),
         };
-        let events = command.apply(board);
+        let events = command.apply(&board);
         assert_eq!(events.len(), 1);
     }
 }

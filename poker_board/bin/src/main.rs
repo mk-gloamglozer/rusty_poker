@@ -1,11 +1,9 @@
-use actix_web;
 use actix_web::web::{Data, Path};
 use actix_web::{App, HttpResponse, HttpServer};
-use poker_board::command::adapter::{basic_transaction_store, in_memory_store};
+use poker_board::command::adapter::{ArcMutexStore, NoRetry};
 use poker_board::command::event::BoardModifiedEvent;
-use poker_board::command::{Board, BoardCommand};
+use poker_board::command::BoardCommand;
 use std::fmt::Debug;
-use util;
 use util::query::Query;
 use util::use_case::UseCase;
 
@@ -25,7 +23,7 @@ where
 
 #[actix_web::post("/board/{id}")]
 async fn clear_votes(
-    data: Data<UseCase<BoardModifiedEvent, Board, String, String>>,
+    data: Data<UseCase<BoardModifiedEvent>>,
     body: String,
     path: Path<String>,
 ) -> HttpResponse {
@@ -38,7 +36,7 @@ async fn clear_votes(
     };
 
     let key = path.into_inner();
-    let response = data.execute(&command, &key).await;
+    let response = data.execute(&key, &command).await;
     response
         .log()
         .map(|_| HttpResponse::Ok().finish())
@@ -46,13 +44,10 @@ async fn clear_votes(
 }
 
 #[actix_web::get("/board/{id}")]
-async fn get_events(
-    query: Data<Query<poker_board::query::Board>>,
-    path: Path<String>,
-) -> HttpResponse {
+async fn get_events(query: Data<Query<BoardModifiedEvent>>, path: Path<String>) -> HttpResponse {
     let key = path.into_inner();
     log::debug!("Getting board with key: {}", key);
-    let response = query.get(&key).await;
+    let response = query.query::<poker_board::query::Board>(&key).await;
     response
         .log()
         .map(|board| HttpResponse::Ok().json(board))
@@ -64,12 +59,13 @@ async fn main() -> std::io::Result<()> {
     std::env::set_var("RUST_LOG", "debug");
     env_logger::init();
 
-    let store = in_memory_store::<Board>();
-    let transactor = basic_transaction_store(store.clone());
+    let store = ArcMutexStore::new();
 
-    let use_case = UseCase::new(transactor);
+    let transaction =
+        util::transaction::Transaction::new(NoRetry::new(), store.clone(), store.clone());
 
-    let query = Query::new(store.loader_for::<poker_board::query::Board>());
+    let use_case = UseCase::new(transaction);
+    let query = Query::new(store.clone());
 
     let use_case_data = Data::new(use_case);
     let query_data = Data::new(query);

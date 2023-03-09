@@ -1,7 +1,7 @@
 use crate::command::event::BoardModifiedEvent;
 use serde::Serialize;
 use std::collections::HashMap;
-use util::use_case::HandleEvent;
+use util::entity::HandleEvent;
 
 #[derive(Default, Debug, PartialEq, Clone, Serialize)]
 pub struct Board {
@@ -67,7 +67,7 @@ impl HandleEvent for Board {
 mod tests {
     use super::*;
     use crate::command::event::{ParticipantNotRemovedReason, ParticipantNotVotedReason};
-    use util::use_case::EventSourced;
+    use util::entity::EventSourced;
 
     #[test]
     pub fn it_should_add_a_participant() {

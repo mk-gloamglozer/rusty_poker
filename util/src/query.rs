@@ -1,24 +1,31 @@
-use std::fmt::Display;
+use crate::store::LoadEntity;
+use crate::transaction::NormaliseTo;
+use std::error::Error;
 
-pub struct Query<Entity> {
-    loader: Box<dyn super::transaction::LoadEntity<Entity, Key = String, Error = String>>,
+pub struct Query<T> {
+    loader: Box<dyn LoadEntity<Vec<T>, Key = String, Error = Box<dyn Error + Send + Sync>>>,
 }
 
-impl<Entity> Query<Entity>
+impl<T> Query<T>
 where
-    Entity: Default + Send + Sync,
+    T: Send + Sync,
 {
-    pub fn new<T>(loader: T) -> Self
+    pub fn new<U>(loader: U) -> Self
     where
-        T: super::transaction::LoadEntity<Entity, Key = String, Error = String> + 'static,
+        U: LoadEntity<Vec<T>, Key = String, Error = Box<dyn Error + Send + Sync>> + 'static,
     {
         Self {
             loader: Box::new(loader),
         }
     }
 
-    pub async fn get(&self, key: &String) -> Result<Entity, String> {
-        let result = self.loader.load(key).await;
-        result.map_err(|e| e.to_string())
+    pub async fn query<Entity>(&self, key: &str) -> Result<Entity, Box<dyn Error + Send + Sync>>
+    where
+        Vec<T>: NormaliseTo<Entity> + Default,
+    {
+        match self.loader.load(&key.into()).await {
+            Ok(entity) => Ok(entity.unwrap_or_default().render_normalised()),
+            Err(e) => Err(e),
+        }
     }
 }

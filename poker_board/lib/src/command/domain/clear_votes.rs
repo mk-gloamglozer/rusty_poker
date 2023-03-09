@@ -12,6 +12,12 @@ impl ClearVotes {
     }
 }
 
+impl Default for ClearVotes {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HandleCommand<ClearVotes> for Board {
     type Event = BoardModifiedEvent;
 
@@ -24,7 +30,7 @@ impl Command for ClearVotes {
     type Entity = Board;
     type Event = BoardModifiedEvent;
 
-    fn apply(&self, entity: Self::Entity) -> Vec<Self::Event> {
+    fn apply(&self, entity: &Self::Entity) -> Vec<Self::Event> {
         entity.execute(self.clone())
     }
 }
