@@ -45,7 +45,7 @@ impl Command for ParticipantVote {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use util::use_case::EventSourced;
+    use util::entity::EventSourced;
 
     #[test]
     pub fn it_should_vote_for_a_participant() {

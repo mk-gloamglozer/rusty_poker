@@ -35,15 +35,15 @@ where
         Self { transaction }
     }
 
-    pub async fn execute<Cmd, R>(
+    pub async fn execute<Cmd>(
         &self,
         key: &str,
         command: &Cmd,
-    ) -> Result<R, Box<dyn Error + Send + Sync>>
+    ) -> Result<<Vec<T> as UpdateWith<Vec<Cmd::Event>>>::UpdateResponse, Box<dyn Error + Send + Sync>>
     where
         Cmd: Command<Event = T>,
         Cmd::Entity: EventSourced<Event = T>,
-        Vec<T>: NormaliseTo<Cmd::Entity> + UpdateWith<Vec<Cmd::Event>, UpdateResponse = R>,
+        Vec<T>: NormaliseTo<Cmd::Entity> + UpdateWith<Vec<Cmd::Event>>,
     {
         let operation = |input: &Cmd::Entity| command.apply(input);
         let result = self.transaction.execute(key, &operation).await;

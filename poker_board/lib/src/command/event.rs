@@ -1,6 +1,7 @@
+use serde::Serialize;
 use std::fmt::Display;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum BoardModifiedEvent {
     ParticipantAdded {
         participant_id: String,
@@ -30,12 +31,12 @@ impl Display for BoardModifiedEvent {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum ParticipantNotRemovedReason {
     DoesNotExist,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum ParticipantNotVotedReason {
     DoesNotExist,
 }

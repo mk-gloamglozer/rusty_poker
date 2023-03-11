@@ -35,7 +35,7 @@ impl Command for RemoveParticipantCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use util::use_case::EventSourced;
+    use util::entity::EventSourced;
 
     #[test]
     pub fn it_should_remove_a_participant() {

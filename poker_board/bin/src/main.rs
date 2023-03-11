@@ -3,6 +3,7 @@ use actix_web::{App, HttpResponse, HttpServer};
 use poker_board::command::adapter::{ArcMutexStore, NoRetry};
 use poker_board::command::event::BoardModifiedEvent;
 use poker_board::command::BoardCommand;
+use serde::Serialize;
 use std::fmt::Debug;
 use util::query::Query;
 use util::use_case::UseCase;
@@ -39,7 +40,11 @@ async fn clear_votes(
     let response = data.execute(&key, &command).await;
     response
         .log()
-        .map(|_| HttpResponse::Ok().finish())
+        .map(|events| {
+            serde_json::to_string(&events)
+                .map(|body| HttpResponse::Ok().body(body))
+                .unwrap_or_else(|_| HttpResponse::InternalServerError().finish())
+        })
         .unwrap_or_else(|_| HttpResponse::InternalServerError().finish())
 }
 
