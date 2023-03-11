@@ -64,7 +64,7 @@ async fn main() -> std::io::Result<()> {
     std::env::set_var("RUST_LOG", "debug");
     env_logger::init();
 
-    let store = ArcMutexStore::new();
+    let store = ArcMutexStore::<BoardModifiedEvent>::new();
 
     let transaction =
         util::transaction::Transaction::new(NoRetry::new(), store.clone(), store.clone());

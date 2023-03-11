@@ -8,36 +8,36 @@ use std::sync::{Arc, Mutex};
 use util::store::{LoadEntity, SaveEntity};
 use util::transaction::retry::{Instruction, RetryStrategy};
 
-struct Store {
-    store: HashMap<String, Vec<BoardModifiedEvent>>,
+struct Store<T> {
+    store: HashMap<String, Vec<T>>,
 }
 
-impl Store {
+impl<T> Store<T> {
     fn new() -> Self {
         Self {
             store: HashMap::new(),
         }
     }
 
-    pub fn get(&self, key: &str) -> Option<&Vec<BoardModifiedEvent>> {
+    pub fn get(&self, key: &str) -> Option<&Vec<T>> {
         self.store.get(key)
     }
 
-    fn insert(&mut self, key: &String, value: Vec<BoardModifiedEvent>) {
+    fn insert(&mut self, key: &String, value: Vec<T>) {
         self.store.insert(key.to_string(), value);
     }
 }
 
 #[derive(Clone)]
-pub struct ArcMutexStore(Arc<Mutex<Store>>);
+pub struct ArcMutexStore<T>(Arc<Mutex<Store<T>>>);
 
-impl ArcMutexStore {
+impl<T> ArcMutexStore<T> {
     pub fn new() -> Self {
         Self(Arc::new(Mutex::new(Store::new())))
     }
 }
 
-impl Default for ArcMutexStore {
+impl<T> Default for ArcMutexStore<T> {
     fn default() -> Self {
         Self::new()
     }
@@ -59,11 +59,14 @@ impl Display for StoreError {
 }
 
 #[async_trait]
-impl LoadEntity<Vec<BoardModifiedEvent>> for ArcMutexStore {
+impl<T> LoadEntity<Vec<T>> for ArcMutexStore<T>
+where
+    T: Send + Sync + 'static + Clone,
+{
     type Key = String;
     type Error = Box<dyn Error + Send + Sync>;
 
-    async fn load(&self, key: &Self::Key) -> Result<Option<Vec<BoardModifiedEvent>>, Self::Error> {
+    async fn load(&self, key: &Self::Key) -> Result<Option<Vec<T>>, Self::Error> {
         match self.0.lock() {
             Ok(guard) => Ok(guard.get(key).cloned()),
             Err(_) => Err(CouldNotLockMutex.into()),
@@ -72,15 +75,14 @@ impl LoadEntity<Vec<BoardModifiedEvent>> for ArcMutexStore {
 }
 
 #[async_trait]
-impl SaveEntity<Vec<BoardModifiedEvent>> for ArcMutexStore {
+impl<T> SaveEntity<Vec<T>> for ArcMutexStore<T>
+where
+    T: Send + Sync + 'static + Clone,
+{
     type Key = String;
     type Error = Box<dyn Error + Send + Sync>;
 
-    async fn save(
-        &self,
-        key: &Self::Key,
-        entity: Vec<BoardModifiedEvent>,
-    ) -> Result<Vec<BoardModifiedEvent>, Self::Error> {
+    async fn save(&self, key: &Self::Key, entity: Vec<T>) -> Result<Vec<T>, Self::Error> {
         match self.0.lock() {
             Ok(mut guard) => {
                 guard.insert(key, entity.clone());
