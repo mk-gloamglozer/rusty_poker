@@ -12,13 +12,16 @@ where
     }
 }
 
-impl<T> UpdateWith<Vec<T>> for Vec<T>
+impl<T, U> UpdateWith<Vec<U>> for Vec<T>
 where
     T: Clone,
+    U: Clone + Into<T>,
 {
-    type UpdateResponse = Vec<T>;
-    fn update_with(&mut self, update_value: Vec<T>) -> Self::UpdateResponse {
-        self.extend(update_value.clone());
+    type UpdateResponse = Vec<U>;
+    fn update_with(&mut self, update_value: Vec<U>) -> Self::UpdateResponse {
+        let transformed_update_values: Vec<T> =
+            update_value.clone().into_iter().map(|e| e.into()).collect();
+        self.extend(transformed_update_values);
         update_value
     }
 }
@@ -41,7 +44,8 @@ where
         command: &Cmd,
     ) -> Result<<Vec<T> as UpdateWith<Vec<Cmd::Event>>>::UpdateResponse, Box<dyn Error + Send + Sync>>
     where
-        Cmd: Command<Event = T>,
+        Cmd: Command,
+        Cmd::Event: Into<T>,
         Cmd::Entity: EventSourced<Event = T>,
         Vec<T>: NormaliseTo<Cmd::Entity> + UpdateWith<Vec<Cmd::Event>>,
     {

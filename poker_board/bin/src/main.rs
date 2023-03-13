@@ -1,10 +1,12 @@
 use actix_web::web::{Data, Path};
 use actix_web::{App, HttpResponse, HttpServer};
-use poker_board::command::adapter::{ArcMutexStore, NoRetry};
-use poker_board::command::event::BoardModifiedEvent;
+use poker_board::command::adapter::{ArcMutexStore, CombinedEventStore, DefaultStore, NoRetry};
+use poker_board::command::event::{
+    BoardModifiedEvent, CombinedEvent, VoteTypeEvent, VoteValidation,
+};
 use poker_board::command::BoardCommand;
-use serde::Serialize;
 use std::fmt::Debug;
+use std::sync::Arc;
 use util::query::Query;
 use util::use_case::UseCase;
 
@@ -24,7 +26,7 @@ where
 
 #[actix_web::post("/board/{id}")]
 async fn clear_votes(
-    data: Data<UseCase<BoardModifiedEvent>>,
+    data: Data<UseCase<CombinedEvent>>,
     body: String,
     path: Path<String>,
 ) -> HttpResponse {
@@ -64,13 +66,24 @@ async fn main() -> std::io::Result<()> {
     std::env::set_var("RUST_LOG", "debug");
     env_logger::init();
 
-    let store = ArcMutexStore::<BoardModifiedEvent>::new();
+    let board_modified_store = ArcMutexStore::<BoardModifiedEvent>::new();
+    let vote_type_store = DefaultStore::<VoteTypeEvent>::new(vec![VoteTypeEvent::VoteTypeAdded {
+        vote_validation: VoteValidation::AnyNumber,
+        vote_type_id: "1".to_string(),
+    }]);
 
-    let transaction =
-        util::transaction::Transaction::new(NoRetry::new(), store.clone(), store.clone());
+    let store = || -> CombinedEventStore {
+        CombinedEventStore::new(
+            board_modified_store.clone(),
+            vote_type_store.clone(),
+            board_modified_store.clone(),
+        )
+    };
+
+    let transaction = util::transaction::Transaction::new(NoRetry::new(), store(), store());
 
     let use_case = UseCase::new(transaction);
-    let query = Query::new(store.clone());
+    let query = Query::<BoardModifiedEvent>::new(store());
 
     let use_case_data = Data::new(use_case);
     let query_data = Data::new(query);

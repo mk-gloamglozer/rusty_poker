@@ -1,5 +1,8 @@
+use crate::command::domain::{CombinedDomain, VoteTypeList};
+use crate::command::Board;
 use serde::Serialize;
 use std::fmt::Display;
+use util::transaction::NormaliseTo;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum BoardModifiedEvent {
@@ -39,4 +42,36 @@ pub enum ParticipantNotRemovedReason {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum ParticipantNotVotedReason {
     DoesNotExist,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub enum VoteTypeEvent {
+    VoteTypeAdded {
+        vote_type_id: String,
+        vote_validation: VoteValidation,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub enum VoteValidation {
+    NumberRange { min: u8, max: u8 },
+    AnyNumber,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub enum CombinedEvent {
+    BoardModifiedEvent(BoardModifiedEvent),
+    VoteTypeEvent(VoteTypeEvent),
+}
+
+impl From<BoardModifiedEvent> for CombinedEvent {
+    fn from(event: BoardModifiedEvent) -> Self {
+        Self::BoardModifiedEvent(event)
+    }
+}
+
+impl From<VoteTypeEvent> for CombinedEvent {
+    fn from(event: VoteTypeEvent) -> Self {
+        Self::VoteTypeEvent(event)
+    }
 }
