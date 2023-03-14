@@ -1,6 +1,6 @@
 use crate::command::domain::{CombinedDomain, VoteTypeList};
 use crate::command::Board;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use util::transaction::NormaliseTo;
 
@@ -19,7 +19,7 @@ pub enum BoardModifiedEvent {
     },
     ParticipantVoted {
         participant_id: String,
-        vote: u8,
+        vote: Vote,
     },
     ParticipantCouldNotVote {
         participant_id: String,
@@ -34,6 +34,27 @@ impl Display for BoardModifiedEvent {
     }
 }
 
+#[derive(Debug, PartialEq, Clone, Deserialize, Serialize)]
+pub struct Vote {
+    pub vote_type_id: String,
+    pub value: VoteValue,
+}
+
+#[derive(Debug, PartialEq, Clone, Deserialize, Serialize)]
+pub enum VoteValue {
+    Number(u8),
+    String(String),
+}
+
+impl Vote {
+    pub fn new(vote_type_id: String, value: VoteValue) -> Self {
+        Self {
+            vote_type_id,
+            value,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum ParticipantNotRemovedReason {
     DoesNotExist,
@@ -42,6 +63,11 @@ pub enum ParticipantNotRemovedReason {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum ParticipantNotVotedReason {
     DoesNotExist,
+    VoteTypeDoesNotExist(String),
+    InvalidVote {
+        expected: VoteValidation,
+        received: VoteValue,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -52,9 +78,8 @@ pub enum VoteTypeEvent {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum VoteValidation {
-    NumberRange { min: u8, max: u8 },
     AnyNumber,
 }
 

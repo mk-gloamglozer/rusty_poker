@@ -29,7 +29,7 @@ impl Command for BoardCommand {
             BoardCommand::AddParticipant(command) => command.apply(entity.board()),
             BoardCommand::ClearVotes(command) => command.apply(entity.board()),
             BoardCommand::RemoveParticipant(command) => command.apply(entity.board()),
-            BoardCommand::Vote(command) => command.apply(entity.board()),
+            BoardCommand::Vote(command) => command.apply(entity),
         }
     }
 }

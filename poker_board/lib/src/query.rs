@@ -1,4 +1,4 @@
-use crate::command::event::BoardModifiedEvent;
+use crate::command::event::{BoardModifiedEvent, VoteValue};
 use serde::Serialize;
 use std::collections::HashMap;
 use util::entity::HandleEvent;
@@ -50,7 +50,10 @@ impl HandleEvent for Board {
                 vote,
             } => {
                 if let Some(participant) = self.participants.get_mut(participant_id) {
-                    participant.vote = Some(*vote);
+                    participant.vote = match vote.value {
+                        VoteValue::Number(number) => Some(number),
+                        VoteValue::String(_) => None,
+                    };
                 }
             }
             BoardModifiedEvent::ParticipantCouldNotVote { .. } => {}
@@ -66,7 +69,9 @@ impl HandleEvent for Board {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::command::event;
     use crate::command::event::{ParticipantNotRemovedReason, ParticipantNotVotedReason};
+    use crate::command::BoardCommand::Vote;
     use util::entity::EventSourced;
 
     #[test]
@@ -105,7 +110,7 @@ mod tests {
         board.apply(&event);
         let event = BoardModifiedEvent::ParticipantVoted {
             participant_id: "test".to_string(),
-            vote: 1,
+            vote: event::Vote::new("test".to_string(), VoteValue::Number(1)),
         };
         board.apply(&event);
         assert_eq!(board.participants.len(), 1);
@@ -135,7 +140,7 @@ mod tests {
         board.apply(&event);
         let event = BoardModifiedEvent::ParticipantVoted {
             participant_id: "test".to_string(),
-            vote: 1,
+            vote: event::Vote::new("test".to_string(), VoteValue::Number(1)),
         };
         board.apply(&event);
         let event = BoardModifiedEvent::VotesCleared;
@@ -172,7 +177,7 @@ mod tests {
             },
             BoardModifiedEvent::ParticipantVoted {
                 participant_id: "test".to_string(),
-                vote: 1,
+                vote: event::Vote::new("test".to_string(), VoteValue::Number(1)),
             },
         ];
         let board = Board::source(&events);
