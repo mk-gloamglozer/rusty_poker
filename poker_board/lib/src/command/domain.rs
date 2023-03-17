@@ -161,7 +161,7 @@ mod board_tests {
         let expected = board.clone();
         let event = BoardModifiedEvent::ParticipantCouldNotVote {
             participant_id: "test".to_string(),
-            reason: ParticipantNotVotedReason::DoesNotExist,
+            reasons: vec![ParticipantNotVotedReason::DoesNotExist],
         };
         board.apply(&event);
         assert_eq!(board, expected);

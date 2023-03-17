@@ -1,9 +1,9 @@
 use super::*;
+use crate::command::event::BoardModifiedEvent::ParticipantVoted;
 use crate::command::event::{ParticipantNotVotedReason, Vote, VoteValue};
-use mockall::predicate::path::exists;
 use serde::Deserialize;
-use std::default::Default;
 use util::command::Command;
+use util::validate::ValidateCommand;
 
 #[derive(Debug, PartialEq, Clone, Deserialize)]
 pub struct ParticipantVote {
@@ -21,16 +21,49 @@ impl ParticipantVote {
 }
 
 impl VoteValidation {
-    pub fn valid_vote(&self, vote: &VoteValue) -> bool {
+    fn valid_vote(&self, vote: &VoteValue) -> Option<ParticipantNotVotedReason> {
         match self {
             VoteValidation::AnyNumber => {
                 if let VoteValue::Number(_) = vote {
-                    true
+                    None
                 } else {
-                    false
+                    Some(ParticipantNotVotedReason::InvalidVote {
+                        expected: self.clone(),
+                        received: vote.clone(),
+                    })
                 }
             }
         }
+    }
+}
+
+impl Into<Vec<BoardModifiedEvent>> for BoardModifiedEvent {
+    fn into(self) -> Vec<BoardModifiedEvent> {
+        vec![self]
+    }
+}
+
+fn be_valid_vote(
+    entity: &CombinedDomain,
+    command: &ParticipantVote,
+) -> Option<ParticipantNotVotedReason> {
+    entity
+        .0
+        .vote_types
+        .get(&command.vote.vote_type_id)
+        .map(|v| v.validation.valid_vote(&command.vote.value))
+        .unwrap_or(Some(ParticipantNotVotedReason::VoteTypeDoesNotExist(
+            command.vote.vote_type_id.clone(),
+        )))
+}
+
+fn have_existing_participant(
+    entity: &CombinedDomain,
+    command: &ParticipantVote,
+) -> Option<ParticipantNotVotedReason> {
+    match entity.1.participants.contains_key(&command.participant_id) {
+        true => None,
+        false => Some(ParticipantNotVotedReason::DoesNotExist),
     }
 }
 
@@ -39,55 +72,18 @@ impl Command for ParticipantVote {
     type Event = BoardModifiedEvent;
 
     fn apply(&self, entity: &Self::Entity) -> Vec<Self::Event> {
-        let ParticipantVote {
-            participant_id,
-            vote,
-        } = self.clone();
-
-        let mut events = Vec::<BoardModifiedEvent>::default();
-        let vote_type_exists = entity.0.vote_types.contains_key(&vote.vote_type_id);
-        let participant_exists = entity.1.participants.contains_key(&participant_id);
-
-        if !participant_exists {
-            events.push(BoardModifiedEvent::ParticipantCouldNotVote {
-                participant_id: participant_id.clone(),
-                reason: ParticipantNotVotedReason::DoesNotExist,
-            });
-        }
-
-        if !vote_type_exists {
-            events.push(BoardModifiedEvent::ParticipantCouldNotVote {
-                participant_id: participant_id.clone(),
-                reason: ParticipantNotVotedReason::VoteTypeDoesNotExist(vote.vote_type_id.clone()),
-            });
-        } else {
-            let validation = entity
-                .0
-                .vote_types
-                .get(&vote.vote_type_id)
-                .unwrap()
-                .clone()
-                .validation;
-
-            if !validation.valid_vote(&vote.value) {
-                events.push(BoardModifiedEvent::ParticipantCouldNotVote {
-                    participant_id: participant_id.clone(),
-                    reason: ParticipantNotVotedReason::InvalidVote {
-                        expected: validation,
-                        received: vote.value.clone(),
-                    },
-                });
-            }
-        }
-
-        if events.is_empty() {
-            events.push(BoardModifiedEvent::ParticipantVoted {
-                participant_id,
-                vote,
-            });
-        }
-
-        events
+        self.should(be_valid_vote)
+            .should(have_existing_participant)
+            .validate_against(entity)
+            .map(|_| ParticipantVoted {
+                participant_id: self.participant_id.clone(),
+                vote: self.vote.clone(),
+            })
+            .unwrap_or_else(|(_, errors)| BoardModifiedEvent::ParticipantCouldNotVote {
+                participant_id: self.participant_id.clone(),
+                reasons: errors,
+            })
+            .into()
     }
 }
 
@@ -111,9 +107,7 @@ mod tests {
                 validation: VoteValidation::AnyNumber,
             },
         );
-        let vote_type_list = VoteTypeList {
-            vote_types: vote_types,
-        };
+        let vote_type_list = VoteTypeList { vote_types };
         let combined_domain = CombinedDomain(vote_type_list, board.clone());
         let command = ParticipantVote {
             participant_id: board.participants.keys().next().unwrap().to_string(),
@@ -124,7 +118,7 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(
             events[0],
-            BoardModifiedEvent::ParticipantVoted {
+            ParticipantVoted {
                 participant_id: "test".to_string(),
                 vote: Vote::new("test".to_string(), VoteValue::Number(1)),
             }
@@ -146,9 +140,7 @@ mod tests {
                 validation: VoteValidation::AnyNumber,
             },
         );
-        let vote_type_list = VoteTypeList {
-            vote_types: vote_types,
-        };
+        let vote_type_list = VoteTypeList { vote_types };
         let combined_domain = CombinedDomain(vote_type_list, board);
         let events = command.apply(&combined_domain);
         assert_eq!(events.len(), 1);
@@ -156,7 +148,7 @@ mod tests {
             events[0],
             BoardModifiedEvent::ParticipantCouldNotVote {
                 participant_id: "test".to_string(),
-                reason: ParticipantNotVotedReason::DoesNotExist,
+                reasons: vec![ParticipantNotVotedReason::DoesNotExist],
             }
         );
     }
@@ -180,9 +172,7 @@ mod tests {
                 validation: VoteValidation::AnyNumber,
             },
         );
-        let vote_type_list = VoteTypeList {
-            vote_types: vote_types,
-        };
+        let vote_type_list = VoteTypeList { vote_types };
         let combined_domain = CombinedDomain(vote_type_list, board);
         let events = command.apply(&combined_domain);
         assert_eq!(events.len(), 1);
@@ -190,7 +180,9 @@ mod tests {
             events[0],
             BoardModifiedEvent::ParticipantCouldNotVote {
                 participant_id: "test".to_string(),
-                reason: ParticipantNotVotedReason::VoteTypeDoesNotExist("not_present".to_string()),
+                reasons: vec![ParticipantNotVotedReason::VoteTypeDoesNotExist(
+                    "not_present".to_string()
+                )],
             }
         );
     }
@@ -214,9 +206,7 @@ mod tests {
                 validation: VoteValidation::AnyNumber,
             },
         );
-        let vote_type_list = VoteTypeList {
-            vote_types: vote_types,
-        };
+        let vote_type_list = VoteTypeList { vote_types };
         let combined_domain = CombinedDomain(vote_type_list, board);
         let events = command.apply(&combined_domain);
         assert_eq!(events.len(), 1);
@@ -224,10 +214,10 @@ mod tests {
             events[0],
             BoardModifiedEvent::ParticipantCouldNotVote {
                 participant_id: "test".to_string(),
-                reason: ParticipantNotVotedReason::InvalidVote {
+                reasons: vec![ParticipantNotVotedReason::InvalidVote {
                     expected: VoteValidation::AnyNumber,
                     received: VoteValue::String("test".to_string()),
-                }
+                }]
             }
         );
     }

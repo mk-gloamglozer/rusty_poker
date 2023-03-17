@@ -23,7 +23,7 @@ pub enum BoardModifiedEvent {
     },
     ParticipantCouldNotVote {
         participant_id: String,
-        reason: ParticipantNotVotedReason,
+        reasons: Vec<ParticipantNotVotedReason>,
     },
     VotesCleared,
 }
