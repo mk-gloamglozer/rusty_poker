@@ -1,14 +1,33 @@
 use actix_web::web::{Data, Path};
-use actix_web::{App, HttpResponse, HttpServer};
+use actix_web::{web, App, HttpResponse, HttpServer};
 use poker_board::command::adapter::{ArcMutexStore, CombinedEventStore, DefaultStore, NoRetry};
 use poker_board::command::event::{
     BoardModifiedEvent, CombinedEvent, VoteTypeEvent, VoteValidation,
 };
 use poker_board::command::BoardCommand;
 use std::fmt::Debug;
-use std::sync::Arc;
 use util::query::Query;
 use util::use_case::UseCase;
+
+use actix::{Actor, ActorContext, Addr, Handler, Recipient, StreamHandler};
+use actix_web_actors::ws;
+use bin::{ArcWsServer, BoardId, Session, SessionId};
+
+async fn board_ws(
+    r: actix_web::HttpRequest,
+    stream: actix_web::web::Payload,
+    path: Path<String>,
+    data: Data<Addr<ArcWsServer>>,
+) -> actix_web::Result<actix_web::HttpResponse> {
+    // generate a new session id
+    let board_id = BoardId::new(path.into_inner());
+    ws::start(
+        Session::new(SessionId::new(), board_id, data.get_ref().clone()),
+        &r,
+        stream,
+    )
+    .log()
+}
 
 trait Log {
     fn log(self) -> Self;
@@ -88,8 +107,12 @@ async fn main() -> std::io::Result<()> {
     let use_case_data = Data::new(use_case);
     let query_data = Data::new(query);
 
+    let server = ArcWsServer::new(store()).start();
+
     HttpServer::new(move || {
         App::new()
+            .route("/ws/board/{id}", web::get().to(board_ws))
+            .app_data(Data::new(server.clone()))
             .app_data(query_data.clone())
             .app_data(use_case_data.clone())
             .service(clear_votes)
