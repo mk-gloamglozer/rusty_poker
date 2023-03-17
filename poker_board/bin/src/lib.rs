@@ -4,12 +4,10 @@ use actix::{
 };
 use actix_web_actors::ws;
 use actix_web_actors::ws::ProtocolError;
-use log::log;
 use poker_board::command::event::BoardModifiedEvent;
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
-use std::sync::atomic::AtomicUsize;
-use std::sync::{Arc, LockResult, Mutex, MutexGuard};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use util::store::LoadEntity;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -38,10 +36,7 @@ impl ToString for BoardId {
 
 #[derive(Message, Serialize)]
 #[rtype(result = "()")]
-struct BoardModifiedMessage {
-    board_id: String,
-    event: BoardModifiedEvent,
-}
+struct BoardModifiedMessage(BoardModifiedEvent);
 
 #[derive(Message)]
 #[rtype(result = "()")]
@@ -64,6 +59,23 @@ struct Board {
     loc: usize,
 }
 
+#[derive(Clone, Default)]
+struct EmptyBoard {
+    sessions: HashMap<SessionId, Recipient<BoardModifiedMessage>>,
+}
+
+#[derive(Clone)]
+enum BoardState {
+    Empty(EmptyBoard),
+    Loaded(Board),
+}
+
+impl Default for BoardState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Board {
     fn new() -> Self {
         Self {
@@ -80,32 +92,82 @@ impl Default for Board {
     }
 }
 
-impl Board {
+impl BoardState {
+    fn new() -> Self {
+        Self::Empty(EmptyBoard {
+            sessions: HashMap::new(),
+        })
+    }
+}
+
+impl BoardState {
     fn add_session(&mut self, session_id: SessionId, recipient: Recipient<BoardModifiedMessage>) {
-        self.sessions.insert(session_id, recipient);
+        match self {
+            BoardState::Empty(board) => {
+                board.sessions.insert(session_id, recipient);
+            }
+            BoardState::Loaded(board) => {
+                board.sessions.insert(session_id, recipient);
+            }
+        }
     }
 
     fn remove_session(&mut self, session_id: &SessionId) {
-        self.sessions.remove(session_id);
+        match self {
+            BoardState::Empty(board) => {
+                board.sessions.remove(session_id);
+            }
+            BoardState::Loaded(board) => {
+                board.sessions.remove(session_id);
+            }
+        }
+    }
+
+    fn is_orphaned(&self) -> bool {
+        match self {
+            BoardState::Empty(board) => board.sessions.is_empty(),
+            BoardState::Loaded(board) => board.sessions.is_empty(),
+        }
+    }
+
+    fn update_events(&mut self, events: Vec<BoardModifiedEvent>) {
+        match self {
+            BoardState::Empty(board) => {
+                let mut sessions = HashMap::new();
+                std::mem::swap(&mut sessions, &mut board.sessions);
+                let loc = events.len();
+                *self = BoardState::Loaded(Board {
+                    events,
+                    sessions,
+                    loc,
+                });
+            }
+            BoardState::Loaded(board) => {
+                board.events = events;
+            }
+        }
+    }
+
+    fn broadcast_changes(&mut self) {
+        match self {
+            BoardState::Empty(_) => {}
+            BoardState::Loaded(board) => {
+                let loc = board.loc;
+                for event in board.events.iter().skip(loc) {
+                    for (_, recipient) in board.sessions.iter() {
+                        recipient.do_send(BoardModifiedMessage(event.clone()));
+                    }
+                }
+                board.loc = board.events.len();
+            }
+        }
     }
 }
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 type ReadStore = Box<dyn LoadEntity<Vec<BoardModifiedEvent>, Key = String, Error = Error>>;
 
-struct State {
-    boards: HashMap<BoardId, Board>,
-}
-
-impl State {
-    fn new() -> Self {
-        Self {
-            boards: HashMap::new(),
-        }
-    }
-}
-
-struct MutexState(Mutex<HashMap<BoardId, Board>>);
+struct MutexState(Mutex<HashMap<BoardId, BoardState>>);
 
 impl MutexState {
     fn new() -> Self {
@@ -133,7 +195,7 @@ impl MutexState {
         let mut orphaned_boards = Vec::new();
         for (id, board) in state.iter_mut() {
             board.remove_session(session_id);
-            if board.sessions.is_empty() {
+            if board.is_orphaned() {
                 orphaned_boards.push(id.clone());
             }
         }
@@ -143,34 +205,19 @@ impl MutexState {
         }
     }
 
-    fn set_position(&self, board_id: BoardId, loc: usize) {
-        let mut state = self.0.lock().unwrap();
-        state.entry(board_id).or_default().loc = loc;
-    }
-
     fn update_events(&self, board_id: BoardId, events: Vec<BoardModifiedEvent>) {
         let mut state = self.0.lock().unwrap();
-        state.entry(board_id).or_default().events = events;
+        state.entry(board_id).or_default().update_events(events);
     }
 
     fn broadcast_changes(&self) {
         let mut state = self.0.lock().unwrap();
-        for (id, board) in state.iter_mut() {
-            let mut loc = board.loc;
-            for event in board.events.iter().skip(loc) {
-                for (_, recipient) in board.sessions.iter() {
-                    recipient.do_send(BoardModifiedMessage {
-                        board_id: id.to_string(),
-                        event: event.clone(),
-                    });
-                }
-                loc += 1;
-            }
-            board.loc = loc;
+        for (_id, board) in state.iter_mut() {
+            board.broadcast_changes();
         }
     }
 
-    fn boards(&self) -> HashMap<BoardId, Board> {
+    fn boards(&self) -> HashMap<BoardId, BoardState> {
         let state = self.0.lock().unwrap();
         state.clone()
     }
@@ -224,7 +271,7 @@ impl Handler<Disconnect> for ArcWsServer {
 
 impl WsServer {
     async fn try_update(&self) -> Result<(), Error> {
-        for (id, board) in self.state.boards() {
+        for (id, _board) in self.state.boards() {
             let events = self
                 .read_store
                 .load(&id.to_string())
@@ -253,7 +300,7 @@ impl ArcWsServer {
 impl Actor for ArcWsServer {
     type Context = Context<Self>;
 
-    fn started(&mut self, ctx: &mut Self::Context) {
+    fn started(&mut self, _ctx: &mut Self::Context) {
         println!("Server started");
         let server = self.clone();
         actix::spawn(async move {
@@ -303,7 +350,7 @@ impl Actor for Session {
         });
     }
 
-    fn stopping(&mut self, ctx: &mut Self::Context) -> Running {
+    fn stopping(&mut self, _ctx: &mut Self::Context) -> Running {
         self.server.do_send(Disconnect {
             session_id: self.id,
         });
@@ -311,7 +358,7 @@ impl Actor for Session {
     }
 }
 
-impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for Session {
+impl StreamHandler<Result<ws::Message, ProtocolError>> for Session {
     fn handle(&mut self, message: Result<ws::Message, ProtocolError>, ctx: &mut Self::Context) {
         match message {
             Ok(ws::Message::Ping(msg)) => ctx.pong(&msg),

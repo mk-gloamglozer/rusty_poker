@@ -9,16 +9,16 @@ use std::fmt::Debug;
 use util::query::Query;
 use util::use_case::UseCase;
 
-use actix::{Actor, ActorContext, Addr, Handler, Recipient, StreamHandler};
+use actix::{Actor, Addr};
 use actix_web_actors::ws;
 use bin::{ArcWsServer, BoardId, Session, SessionId};
 
 async fn board_ws(
     r: actix_web::HttpRequest,
-    stream: actix_web::web::Payload,
+    stream: web::Payload,
     path: Path<String>,
     data: Data<Addr<ArcWsServer>>,
-) -> actix_web::Result<actix_web::HttpResponse> {
+) -> actix_web::Result<HttpResponse> {
     // generate a new session id
     let board_id = BoardId::new(path.into_inner());
     ws::start(
