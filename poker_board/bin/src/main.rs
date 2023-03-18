@@ -11,15 +11,14 @@ use util::use_case::UseCase;
 
 use actix::{Actor, Addr};
 use actix_web_actors::ws;
-use bin::{ArcWsServer, BoardId, QuerySession, Session, SessionId, UseCaseServer};
 use poker_board::query;
+use websockets::{ArcWsServer, BoardId, QuerySession};
 
 async fn board_ws(
     r: actix_web::HttpRequest,
     stream: web::Payload,
     path: Path<String>,
     ws_server: Data<Addr<ArcWsServer>>,
-    uc_server: Data<Addr<UseCaseServer>>,
 ) -> actix_web::Result<HttpResponse> {
     let board_id = BoardId::new(path.into_inner());
     ws::start(
@@ -45,7 +44,7 @@ where
 }
 
 #[actix_web::post("/board/{id}")]
-async fn clear_votes(
+async fn modify_board(
     data: Data<UseCase<CombinedEvent>>,
     body: String,
     path: Path<String>,
@@ -74,7 +73,7 @@ async fn clear_votes(
 async fn get_events(query: Data<Query<BoardModifiedEvent>>, path: Path<String>) -> HttpResponse {
     let key = path.into_inner();
     log::debug!("Getting board with key: {}", key);
-    let response = query.query::<poker_board::query::Board>(&key).await;
+    let response = query.query::<query::Board>(&key).await;
     response
         .log()
         .map(|board| HttpResponse::Ok().json(board))
@@ -110,17 +109,13 @@ async fn main() -> std::io::Result<()> {
 
     let server = ArcWsServer::new(store()).start();
 
-    let transaction = util::transaction::Transaction::new(NoRetry::new(), store(), store());
-    let uc_server = UseCaseServer::new(UseCase::new(transaction)).start();
-
     HttpServer::new(move || {
         App::new()
             .route("/ws/board/{id}", web::get().to(board_ws))
             .app_data(Data::new(server.clone()))
-            .app_data(Data::new(uc_server.clone()))
             .app_data(query_data.clone())
             .app_data(use_case_data.clone())
-            .service(clear_votes)
+            .service(modify_board)
             .service(get_events)
     })
     .bind(("127.0.0.1", 8080))?

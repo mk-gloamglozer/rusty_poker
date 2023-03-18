@@ -1,18 +1,10 @@
-use actix::{
-    Actor, ActorContext, Addr, AsyncContext, Context, Handler, Message, Recipient, Running,
-    StreamHandler,
-};
-use actix_web_actors::ws;
-use actix_web_actors::ws::ProtocolError;
-use poker_board::command::event::{BoardModifiedEvent, CombinedEvent};
-use poker_board::command::BoardCommand;
+use actix::{Actor, Context, Handler, Message, Recipient};
+use poker_board::command::event::BoardModifiedEvent;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
-use util::entity::{EventSourced, HandleEvent};
 use util::store::LoadEntity;
-use util::use_case::UseCase;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SessionId(usize);
@@ -40,31 +32,69 @@ impl ToString for BoardId {
 
 #[derive(Message, Serialize)]
 #[rtype(result = "()")]
-struct BoardModifiedMessage(BoardModifiedEvent);
+pub struct BoardModifiedMessage(BoardModifiedEvent);
+
+impl Into<BoardModifiedEvent> for BoardModifiedMessage {
+    fn into(self) -> BoardModifiedEvent {
+        self.0
+    }
+}
 
 #[derive(Message, Serialize)]
 #[rtype(result = "()")]
-struct ReplayMessage(Vec<BoardModifiedEvent>);
+pub struct ReplayMessage(Vec<BoardModifiedEvent>);
 
-#[derive(Message)]
-#[rtype(result = "()")]
-struct Replay {
-    board_id: BoardId,
-    addr: Recipient<ReplayMessage>,
+impl Into<Vec<BoardModifiedEvent>> for ReplayMessage {
+    fn into(self) -> Vec<BoardModifiedEvent> {
+        self.0
+    }
 }
 
 #[derive(Message)]
 #[rtype(result = "()")]
-struct Connect {
+pub struct Replay {
+    board_id: BoardId,
+    addr: Recipient<ReplayMessage>,
+}
+
+impl Replay {
+    pub fn new(board_id: BoardId, addr: Recipient<ReplayMessage>) -> Self {
+        Self { board_id, addr }
+    }
+}
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct Connect {
     session_id: SessionId,
     board_id: BoardId,
     recipient: Recipient<BoardModifiedMessage>,
 }
 
+impl Connect {
+    pub fn new(
+        session_id: SessionId,
+        board_id: BoardId,
+        recipient: Recipient<BoardModifiedMessage>,
+    ) -> Self {
+        Self {
+            session_id,
+            board_id,
+            recipient,
+        }
+    }
+}
+
 #[derive(Message)]
 #[rtype(result = "()")]
-struct Disconnect {
+pub struct Disconnect {
     session_id: SessionId,
+}
+
+impl Disconnect {
+    pub fn new(session_id: SessionId) -> Self {
+        Self { session_id }
+    }
 }
 
 #[derive(Clone)]
@@ -401,271 +431,5 @@ impl Actor for ArcWsServer {
                 actix::clock::sleep(std::time::Duration::from_secs(1)).await;
             }
         });
-    }
-}
-
-pub struct Session {
-    id: SessionId,
-    board_id: BoardId,
-    server: Addr<ArcWsServer>,
-    use_case_server: Addr<UseCaseServer>,
-}
-
-impl Session {
-    pub fn new(
-        session_id: SessionId,
-        board_id: BoardId,
-        server: Addr<ArcWsServer>,
-        use_case_server: Addr<UseCaseServer>,
-    ) -> Self {
-        Self {
-            id: session_id,
-            board_id,
-            server,
-            use_case_server,
-        }
-    }
-}
-
-impl Handler<BoardModifiedMessage> for Session {
-    type Result = ();
-
-    fn handle(&mut self, msg: BoardModifiedMessage, ctx: &mut Self::Context) -> Self::Result {
-        ctx.text(serde_json::to_string(&msg).unwrap());
-    }
-}
-
-impl Actor for Session {
-    type Context = ws::WebsocketContext<Self>;
-
-    fn started(&mut self, ctx: &mut Self::Context) {
-        self.server.do_send(Connect {
-            session_id: self.id,
-            board_id: self.board_id.clone(),
-            recipient: ctx.address().recipient(),
-        });
-    }
-
-    fn stopping(&mut self, _ctx: &mut Self::Context) -> Running {
-        self.server.do_send(Disconnect {
-            session_id: self.id,
-        });
-        Running::Stop
-    }
-}
-
-#[derive(Debug, Deserialize)]
-enum Command {
-    Replay,
-    Command(BoardCommand),
-}
-
-impl StreamHandler<Result<ws::Message, ProtocolError>> for Session {
-    fn handle(&mut self, message: Result<ws::Message, ProtocolError>, ctx: &mut Self::Context) {
-        match message {
-            Ok(ws::Message::Ping(msg)) => ctx.pong(&msg),
-            Ok(ws::Message::Close(reason)) => {
-                ctx.close(reason);
-                ctx.stop();
-            }
-            Ok(ws::Message::Text(text)) => {
-                let msg = serde_json::from_str::<Command>(&text);
-                match msg {
-                    Ok(Command::Replay) => {
-                        // self.server.do_send(Replay {
-                        //     board_id: self.board_id.clone(),
-                        //     addr: ctx.address().recipient(),
-                        // });
-                    }
-                    Ok(Command::Command(msg)) => {
-                        self.use_case_server.do_send(CommandMessage {
-                            board_id: self.board_id.clone(),
-                            command: msg,
-                        });
-                    }
-                    Err(err) => {
-                        log::error!("Error: {:?}", err);
-                    }
-                }
-            }
-            Err(_) => ctx.stop(),
-            _ => (),
-        }
-    }
-}
-
-#[derive(Debug, Deserialize, Message)]
-#[rtype(result = "()")]
-struct CommandMessage {
-    board_id: BoardId,
-    command: BoardCommand,
-}
-
-pub struct UseCaseServer {
-    use_case: Arc<UseCase<CombinedEvent>>,
-}
-
-impl UseCaseServer {
-    pub fn new(use_case: UseCase<CombinedEvent>) -> Self {
-        Self {
-            use_case: Arc::new(use_case),
-        }
-    }
-}
-
-impl Handler<CommandMessage> for UseCaseServer {
-    type Result = ();
-
-    fn handle(&mut self, msg: CommandMessage, _ctx: &mut Self::Context) -> Self::Result {
-        let use_case = self.use_case.clone();
-        actix::spawn(async move {
-            use_case
-                .execute(&msg.board_id.to_string(), &msg.command)
-                .await
-                .unwrap_or_else(|err| {
-                    log::error!("Error: {:?}", err);
-                    Vec::default()
-                });
-        });
-    }
-}
-
-impl Actor for UseCaseServer {
-    type Context = Context<Self>;
-}
-
-pub struct QuerySession<T> {
-    board_id: BoardId,
-    server: Addr<ArcWsServer>,
-    query: QueryState<T>,
-}
-
-impl<T> QuerySession<T> {
-    pub fn new(board_id: BoardId, server: Addr<ArcWsServer>) -> Self {
-        Self {
-            board_id,
-            server,
-            query: QueryState::Initial(Vec::default()),
-        }
-    }
-}
-
-impl<T> QuerySession<T>
-where
-    T: Unpin + 'static + HandleEvent<Event = BoardModifiedEvent> + Default + Serialize,
-{
-    fn handle_event(&mut self, event: BoardModifiedEvent) -> &QueryState<T> {
-        match &mut self.query {
-            QueryState::Initial(events) => {
-                events.push(event);
-            }
-            QueryState::Live(query) => {
-                query.apply(&event);
-            }
-        }
-        &self.query
-    }
-
-    fn replay(&mut self, events: Vec<BoardModifiedEvent>) -> &QueryState<T> {
-        match &self.query {
-            QueryState::Initial(queued_events) => {
-                self.query = QueryState::Live({
-                    let mut live_state = T::default();
-                    for event in queued_events {
-                        live_state.apply(event);
-                    }
-                    for event in events {
-                        live_state.apply(&event);
-                    }
-                    live_state
-                });
-            }
-            QueryState::Live(_) => {}
-        };
-        &self.query
-    }
-}
-
-#[derive(Debug)]
-enum QueryState<T> {
-    Initial(Vec<BoardModifiedEvent>),
-    Live(T),
-}
-
-impl<T> Actor for QuerySession<T>
-where
-    T: Unpin + 'static + HandleEvent<Event = BoardModifiedEvent> + Default + Serialize + Debug,
-{
-    type Context = ws::WebsocketContext<Self>;
-
-    fn started(&mut self, ctx: &mut Self::Context) {
-        self.server.do_send(Connect {
-            session_id: SessionId::new(),
-            board_id: self.board_id.clone(),
-            recipient: ctx.address().recipient(),
-        });
-
-        self.server.do_send(Replay {
-            board_id: self.board_id.clone(),
-            addr: ctx.address().recipient(),
-        });
-    }
-
-    fn stopping(&mut self, _ctx: &mut Self::Context) -> Running {
-        self.server.do_send(Disconnect {
-            session_id: SessionId::new(),
-        });
-        Running::Stop
-    }
-}
-
-impl<T> Handler<ReplayMessage> for QuerySession<T>
-where
-    T: Unpin + 'static + HandleEvent<Event = BoardModifiedEvent> + Default + Serialize + Debug,
-{
-    type Result = ();
-
-    fn handle(&mut self, msg: ReplayMessage, ctx: &mut Self::Context) -> Self::Result {
-        self.replay(msg.0);
-        if let QueryState::Live(query) = &self.query {
-            ctx.text(serde_json::to_string(&query).unwrap_or_else(|err| {
-                log::error!("Error: {:?}", err);
-                String::default()
-            }));
-        }
-    }
-}
-
-impl<T> Handler<BoardModifiedMessage> for QuerySession<T>
-where
-    T: Unpin + 'static + HandleEvent<Event = BoardModifiedEvent> + Default + Serialize + Debug,
-{
-    type Result = ();
-
-    fn handle(&mut self, msg: BoardModifiedMessage, ctx: &mut Self::Context) -> Self::Result {
-        self.handle_event(msg.0);
-        if let QueryState::Live(query) = &self.query {
-            ctx.text(serde_json::to_string(&query).unwrap_or_else(|err| {
-                log::error!("Error: {:?}", err);
-                String::default()
-            }));
-        }
-    }
-}
-
-impl<T> StreamHandler<Result<ws::Message, ProtocolError>> for QuerySession<T>
-where
-    T: Unpin + 'static + HandleEvent<Event = BoardModifiedEvent> + Default + Serialize + Debug,
-{
-    fn handle(&mut self, message: Result<ws::Message, ProtocolError>, ctx: &mut Self::Context) {
-        match message {
-            Ok(ws::Message::Ping(msg)) => ctx.pong(&msg),
-            Ok(ws::Message::Close(reason)) => {
-                ctx.close(reason);
-                ctx.stop();
-            }
-            Err(_) => ctx.stop(),
-            _ => (),
-        }
     }
 }

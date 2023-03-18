@@ -1,5 +1,5 @@
 [package]
-name = "bin"
+name = "websockets"
 version = "0.1.0"
 edition = "2021"
 
@@ -12,8 +12,8 @@ actix="0.13.0"
 actix-web = "4"
 env_logger = "0.10.0"
 log = "0.4.14"
-poker-board = {path = "../lib"}
-util = {path = "../../util"}
-websockets = {path = "../websockets"}
+poker-board = {path = "../lib" }
+util = {path = "../../util" }
 actix-web-actors = "4.2.0"
 rand= "0.8.5"
+

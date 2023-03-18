@@ -1,4 +1,4 @@
 [workspace]
-members = ['poker_board/lib', 'poker_board/bin', 'util']
+members = ['poker_board/lib', 'poker_board/bin', 'util', 'poker_board/websockets']
 
 
