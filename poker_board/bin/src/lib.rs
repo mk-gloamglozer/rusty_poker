@@ -4,11 +4,13 @@ use actix::{
 };
 use actix_web_actors::ws;
 use actix_web_actors::ws::ProtocolError;
-use poker_board::command::event::BoardModifiedEvent;
+use poker_board::command::event::{BoardModifiedEvent, CombinedEvent};
+use poker_board::command::BoardCommand;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use util::store::LoadEntity;
+use util::use_case::UseCase;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SessionId(usize);
@@ -358,14 +360,21 @@ pub struct Session {
     id: SessionId,
     board_id: BoardId,
     server: Addr<ArcWsServer>,
+    use_case_server: Addr<UseCaseServer>,
 }
 
 impl Session {
-    pub fn new(session_id: SessionId, board_id: BoardId, server: Addr<ArcWsServer>) -> Self {
+    pub fn new(
+        session_id: SessionId,
+        board_id: BoardId,
+        server: Addr<ArcWsServer>,
+        use_case_server: Addr<UseCaseServer>,
+    ) -> Self {
         Self {
             id: session_id,
             board_id,
             server,
+            use_case_server,
         }
     }
 }
@@ -397,9 +406,10 @@ impl Actor for Session {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize)]
 enum Command {
     Replay,
+    Command(BoardCommand),
 }
 
 impl StreamHandler<Result<ws::Message, ProtocolError>> for Session {
@@ -419,6 +429,12 @@ impl StreamHandler<Result<ws::Message, ProtocolError>> for Session {
                             addr: ctx.address().recipient(),
                         });
                     }
+                    Ok(Command::Command(msg)) => {
+                        self.use_case_server.do_send(CommandMessage {
+                            board_id: self.board_id.clone(),
+                            command: msg,
+                        });
+                    }
                     Err(err) => {
                         log::error!("Error: {:?}", err);
                     }
@@ -428,4 +444,44 @@ impl StreamHandler<Result<ws::Message, ProtocolError>> for Session {
             _ => (),
         }
     }
+}
+
+#[derive(Debug, Deserialize, Message)]
+#[rtype(result = "()")]
+struct CommandMessage {
+    board_id: BoardId,
+    command: BoardCommand,
+}
+
+pub struct UseCaseServer {
+    use_case: Arc<UseCase<CombinedEvent>>,
+}
+
+impl UseCaseServer {
+    pub fn new(use_case: UseCase<CombinedEvent>) -> Self {
+        Self {
+            use_case: Arc::new(use_case),
+        }
+    }
+}
+
+impl Handler<CommandMessage> for UseCaseServer {
+    type Result = ();
+
+    fn handle(&mut self, msg: CommandMessage, _ctx: &mut Self::Context) -> Self::Result {
+        let use_case = self.use_case.clone();
+        actix::spawn(async move {
+            use_case
+                .execute(&msg.board_id.to_string(), &msg.command)
+                .await
+                .unwrap_or_else(|err| {
+                    log::error!("Error: {:?}", err);
+                    Vec::default()
+                });
+        });
+    }
+}
+
+impl Actor for UseCaseServer {
+    type Context = Context<Self>;
 }

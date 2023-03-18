@@ -11,18 +11,24 @@ use util::use_case::UseCase;
 
 use actix::{Actor, Addr};
 use actix_web_actors::ws;
-use bin::{ArcWsServer, BoardId, Session, SessionId};
+use bin::{ArcWsServer, BoardId, Session, SessionId, UseCaseServer};
 
 async fn board_ws(
     r: actix_web::HttpRequest,
     stream: web::Payload,
     path: Path<String>,
-    data: Data<Addr<ArcWsServer>>,
+    ws_server: Data<Addr<ArcWsServer>>,
+    uc_server: Data<Addr<UseCaseServer>>,
 ) -> actix_web::Result<HttpResponse> {
     // generate a new session id
     let board_id = BoardId::new(path.into_inner());
     ws::start(
-        Session::new(SessionId::new(), board_id, data.get_ref().clone()),
+        Session::new(
+            SessionId::new(),
+            board_id,
+            ws_server.get_ref().clone(),
+            uc_server.get_ref().clone(),
+        ),
         &r,
         stream,
     )
@@ -109,10 +115,14 @@ async fn main() -> std::io::Result<()> {
 
     let server = ArcWsServer::new(store()).start();
 
+    let transaction = util::transaction::Transaction::new(NoRetry::new(), store(), store());
+    let uc_server = UseCaseServer::new(UseCase::new(transaction)).start();
+
     HttpServer::new(move || {
         App::new()
             .route("/ws/board/{id}", web::get().to(board_ws))
             .app_data(Data::new(server.clone()))
+            .app_data(Data::new(uc_server.clone()))
             .app_data(query_data.clone())
             .app_data(use_case_data.clone())
             .service(clear_votes)
