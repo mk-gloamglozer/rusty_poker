@@ -62,6 +62,7 @@ impl HandleEvent for Board {
                     participant.vote = None;
                 }
             }
+            BoardModifiedEvent::ParticipantNotAdded { .. } => {}
         }
     }
 }

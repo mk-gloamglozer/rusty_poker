@@ -10,6 +10,10 @@ pub enum BoardModifiedEvent {
         participant_id: String,
         participant_name: String,
     },
+    ParticipantNotAdded {
+        participant_id: String,
+        reason: ParticipantNotAddedReason,
+    },
     ParticipantRemoved {
         participant_id: String,
     },
@@ -53,6 +57,11 @@ impl Vote {
             value,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub enum ParticipantNotAddedReason {
+    AlreadyExists,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]

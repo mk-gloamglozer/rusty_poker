@@ -51,6 +51,7 @@ impl HandleEvent for Board {
             BoardModifiedEvent::ParticipantVoted { .. } => {}
             BoardModifiedEvent::ParticipantCouldNotVote { .. } => {}
             BoardModifiedEvent::VotesCleared => {}
+            BoardModifiedEvent::ParticipantNotAdded { .. } => {}
         }
     }
 }
