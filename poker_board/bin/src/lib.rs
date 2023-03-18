@@ -5,7 +5,7 @@ use actix::{
 use actix_web_actors::ws;
 use actix_web_actors::ws::ProtocolError;
 use poker_board::command::event::BoardModifiedEvent;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use util::store::LoadEntity;
@@ -20,7 +20,7 @@ impl SessionId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BoardId(String);
 
 impl BoardId {
@@ -37,6 +37,13 @@ impl ToString for BoardId {
 #[derive(Message, Serialize)]
 #[rtype(result = "()")]
 struct BoardModifiedMessage(BoardModifiedEvent);
+
+#[derive(Message)]
+#[rtype(result = "()")]
+struct Replay {
+    board_id: BoardId,
+    addr: Recipient<BoardModifiedMessage>,
+}
 
 #[derive(Message)]
 #[rtype(result = "()")]
@@ -162,12 +169,36 @@ impl BoardState {
             }
         }
     }
+
+    fn replay_onto(&self, recipient: Recipient<BoardModifiedMessage>) {
+        match self {
+            BoardState::Empty(_) => {}
+            BoardState::Loaded(board) => {
+                for event in board.events.iter() {
+                    recipient.do_send(BoardModifiedMessage(event.clone()));
+                }
+            }
+        }
+    }
 }
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 type ReadStore = Box<dyn LoadEntity<Vec<BoardModifiedEvent>, Key = String, Error = Error>>;
 
 struct MutexState(Mutex<HashMap<BoardId, BoardState>>);
+
+impl MutexState {
+    pub(crate) fn replay_board_onto(
+        &self,
+        id: BoardId,
+        recipient: Recipient<BoardModifiedMessage>,
+    ) {
+        let state = self.0.lock().unwrap();
+        if let Some(board) = state.get(&id) {
+            board.replay_onto(recipient);
+        }
+    }
+}
 
 impl MutexState {
     fn new() -> Self {
@@ -269,6 +300,14 @@ impl Handler<Disconnect> for ArcWsServer {
     }
 }
 
+impl Handler<Replay> for ArcWsServer {
+    type Result = ();
+
+    fn handle(&mut self, msg: Replay, _: &mut Context<Self>) {
+        self.0.state.replay_board_onto(msg.board_id, msg.addr);
+    }
+}
+
 impl WsServer {
     async fn try_update(&self) -> Result<(), Error> {
         for (id, _board) in self.state.boards() {
@@ -358,6 +397,11 @@ impl Actor for Session {
     }
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+enum Command {
+    Replay,
+}
+
 impl StreamHandler<Result<ws::Message, ProtocolError>> for Session {
     fn handle(&mut self, message: Result<ws::Message, ProtocolError>, ctx: &mut Self::Context) {
         match message {
@@ -365,6 +409,20 @@ impl StreamHandler<Result<ws::Message, ProtocolError>> for Session {
             Ok(ws::Message::Close(reason)) => {
                 ctx.close(reason);
                 ctx.stop();
+            }
+            Ok(ws::Message::Text(text)) => {
+                let msg = serde_json::from_str::<Command>(&text);
+                match msg {
+                    Ok(Command::Replay) => {
+                        self.server.do_send(Replay {
+                            board_id: self.board_id.clone(),
+                            addr: ctx.address().recipient(),
+                        });
+                    }
+                    Err(err) => {
+                        log::error!("Error: {:?}", err);
+                    }
+                }
             }
             Err(_) => ctx.stop(),
             _ => (),
