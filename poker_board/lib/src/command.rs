@@ -18,6 +18,7 @@ pub enum BoardCommand {
     ClearVotes(ClearVotes),
     RemoveParticipant(RemoveParticipantCommand),
     Vote(ParticipantVote),
+    Noop,
 }
 
 impl Command for BoardCommand {
@@ -30,6 +31,7 @@ impl Command for BoardCommand {
             BoardCommand::ClearVotes(command) => command.apply(entity.board()),
             BoardCommand::RemoveParticipant(command) => command.apply(entity.board()),
             BoardCommand::Vote(command) => command.apply(entity),
+            BoardCommand::Noop => vec![],
         }
     }
 }

@@ -40,6 +40,12 @@ impl Into<BoardModifiedEvent> for BoardModifiedMessage {
     }
 }
 
+impl From<BoardModifiedEvent> for BoardModifiedMessage {
+    fn from(event: BoardModifiedEvent) -> Self {
+        Self(event)
+    }
+}
+
 #[derive(Message, Serialize)]
 #[rtype(result = "()")]
 pub struct ReplayMessage(Vec<BoardModifiedEvent>);
@@ -428,7 +434,7 @@ impl Actor for ArcWsServer {
                     log::error!("Error: {:?}", err);
                 });
                 server.broadcast_changes();
-                actix::clock::sleep(std::time::Duration::from_secs(1)).await;
+                actix::clock::sleep(std::time::Duration::from_millis(500)).await;
             }
         });
     }

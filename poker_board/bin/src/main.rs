@@ -12,17 +12,22 @@ use util::use_case::UseCase;
 use actix::{Actor, Addr};
 use actix_web_actors::ws;
 use poker_board::query;
-use websockets::{ArcWsServer, BoardId, QuerySession};
+use websockets::{ArcWsServer, BoardId, CommandQuerySession, UseCaseServer};
 
 async fn board_ws(
     r: actix_web::HttpRequest,
     stream: web::Payload,
     path: Path<String>,
     ws_server: Data<Addr<ArcWsServer>>,
+    com_server: Data<Addr<UseCaseServer>>,
 ) -> actix_web::Result<HttpResponse> {
     let board_id = BoardId::new(path.into_inner());
     ws::start(
-        QuerySession::<query::Board>::new(board_id, ws_server.get_ref().clone()),
+        CommandQuerySession::<query::Board>::new(
+            board_id,
+            ws_server.get_ref().clone(),
+            com_server.get_ref().clone(),
+        ),
         &r,
         stream,
     )
@@ -109,10 +114,13 @@ async fn main() -> std::io::Result<()> {
 
     let server = ArcWsServer::new(store()).start();
 
+    let com_server = UseCaseServer::new(use_case_data.clone().into_inner()).start();
+
     HttpServer::new(move || {
         App::new()
             .route("/ws/board/{id}", web::get().to(board_ws))
             .app_data(Data::new(server.clone()))
+            .app_data(Data::new(com_server.clone()))
             .app_data(query_data.clone())
             .app_data(use_case_data.clone())
             .service(modify_board)
