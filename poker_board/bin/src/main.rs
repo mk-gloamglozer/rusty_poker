@@ -11,7 +11,8 @@ use util::use_case::UseCase;
 
 use actix::{Actor, Addr};
 use actix_web_actors::ws;
-use bin::{ArcWsServer, BoardId, Session, SessionId, UseCaseServer};
+use bin::{ArcWsServer, BoardId, QuerySession, Session, SessionId, UseCaseServer};
+use poker_board::query;
 
 async fn board_ws(
     r: actix_web::HttpRequest,
@@ -20,15 +21,9 @@ async fn board_ws(
     ws_server: Data<Addr<ArcWsServer>>,
     uc_server: Data<Addr<UseCaseServer>>,
 ) -> actix_web::Result<HttpResponse> {
-    // generate a new session id
     let board_id = BoardId::new(path.into_inner());
     ws::start(
-        Session::new(
-            SessionId::new(),
-            board_id,
-            ws_server.get_ref().clone(),
-            uc_server.get_ref().clone(),
-        ),
+        QuerySession::<query::Board>::new(board_id, ws_server.get_ref().clone()),
         &r,
         stream,
     )
