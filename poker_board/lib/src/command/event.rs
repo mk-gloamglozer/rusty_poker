@@ -1,8 +1,5 @@
-use crate::command::domain::{CombinedDomain, VoteTypeList};
-use crate::command::Board;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
-use util::transaction::NormaliseTo;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum BoardModifiedEvent {

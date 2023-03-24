@@ -53,13 +53,13 @@ impl RetryPolicyService {
 }
 
 pub struct RetryPolicy {
-    strategy: Box<dyn RetryStrategy>,
+    strategy: Box<dyn RetryStrategy + Send>,
     retry_count: u8,
     instruction: Option<Instruction>,
 }
 
 impl RetryPolicy {
-    fn new<T: RetryStrategy + 'static>(strategy: T) -> Self {
+    fn new<T: RetryStrategy + Send + 'static>(strategy: T) -> Self {
         Self {
             strategy: Box::new(strategy),
             retry_count: 0,

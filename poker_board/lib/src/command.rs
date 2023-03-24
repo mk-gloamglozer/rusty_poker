@@ -4,7 +4,7 @@ use crate::command::domain::remove_participant::RemoveParticipantCommand;
 use crate::command::domain::vote::ParticipantVote;
 pub use crate::command::domain::Board;
 use crate::command::domain::CombinedDomain;
-use crate::command::event::{BoardModifiedEvent, CombinedEvent};
+use crate::command::event::BoardModifiedEvent;
 use serde::Deserialize;
 use util::command::Command;
 

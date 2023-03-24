@@ -19,7 +19,7 @@ impl<'a, T, C, U> Validator<'a, T, C, U> {
     pub fn validate_against(self, domain: &T) -> Result<&'a C, (&'a C, Vec<U>)> {
         let mut errors = Vec::new();
         for validator in self.validate_list {
-            if let Some(error) = validator.validate(domain, &self.command) {
+            if let Some(error) = validator.validate(domain, self.command) {
                 errors.push(error);
             }
         }

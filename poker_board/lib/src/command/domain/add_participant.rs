@@ -56,7 +56,7 @@ impl Command for AddParticipantCommand {
                 participant_name: command.participant_name.clone(),
             })
             .unwrap_or_else(
-                |(command, reasons)| BoardModifiedEvent::ParticipantNotAdded {
+                |(_command, reasons)| BoardModifiedEvent::ParticipantNotAdded {
                     participant_id: self.participant_id.clone().unwrap_or("".to_string()),
                     reason: reasons[0].clone(),
                 },

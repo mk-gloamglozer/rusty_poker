@@ -1,7 +1,7 @@
 use crate::command::adapter::StoreError::CouldNotLockMutex;
-use crate::command::domain::VoteTypeList;
+
 use crate::command::event::{BoardModifiedEvent, CombinedEvent, VoteTypeEvent};
-use crate::command::Board;
+
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::error::Error;
@@ -9,7 +9,6 @@ use std::fmt::Display;
 use std::sync::{Arc, Mutex};
 use util::store::{LoadEntity, SaveEntity};
 use util::transaction::retry::{Instruction, RetryStrategy};
-use util::transaction::NormaliseTo;
 
 struct Store<T> {
     store: HashMap<String, Vec<T>>,
@@ -220,7 +219,7 @@ impl SaveEntity<Vec<CombinedEvent>> for CombinedEventStore {
 
 #[async_trait]
 trait LoadEvent<T> {
-    async fn load_events<U>(&self, key: &String) -> Result<Vec<U>, Box<dyn Error + Send + Sync>>
+    async fn load_events<U>(&self, key: &str) -> Result<Vec<U>, Box<dyn Error + Send + Sync>>
     where
         U: From<T>;
 }
@@ -229,12 +228,12 @@ trait LoadEvent<T> {
 impl<T> LoadEvent<T>
     for Box<dyn LoadEntity<Vec<T>, Key = String, Error = Box<dyn Error + Send + Sync>>>
 {
-    async fn load_events<U>(&self, key: &String) -> Result<Vec<U>, Box<dyn Error + Send + Sync>>
+    async fn load_events<U>(&self, key: &str) -> Result<Vec<U>, Box<dyn Error + Send + Sync>>
     where
         U: From<T>,
     {
         let result = self
-            .load(key)
+            .load(&key.to_string())
             .await?
             .unwrap_or_default()
             .into_iter()

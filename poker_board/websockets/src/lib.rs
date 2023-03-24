@@ -1,5 +1,5 @@
-mod server;
-mod session;
+mod message;
+pub mod store;
+pub mod websocket;
 
-pub use server::*;
-pub use session::*;
+pub type Error = Box<dyn std::error::Error + Send + Sync>;

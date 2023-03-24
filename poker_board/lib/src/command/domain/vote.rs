@@ -37,9 +37,9 @@ impl VoteValidation {
     }
 }
 
-impl Into<Vec<BoardModifiedEvent>> for BoardModifiedEvent {
-    fn into(self) -> Vec<BoardModifiedEvent> {
-        vec![self]
+impl From<BoardModifiedEvent> for Vec<BoardModifiedEvent> {
+    fn from(val: BoardModifiedEvent) -> Self {
+        vec![val]
     }
 }
 
