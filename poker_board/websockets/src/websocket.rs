@@ -3,20 +3,21 @@ use crate::Error;
 use actix::{Actor, ActorContext, Addr, AsyncContext, Handler, Message, Recipient, StreamHandler};
 use actix_web_actors::ws;
 use actix_web_actors::ws::{ProtocolError, WebsocketContext};
-use poker_board::command::event::{BoardModifiedEvent, CombinedEvent};
-use poker_board::command::{add_participant, remove_participant, vote, BoardCommand};
-use poker_board::{command, query};
+use poker_board::command;
+use poker_board::command::event::BoardModifiedEvent;
+use poker_board::command::{remove_participant, BoardCommand};
 
+use actix_web::{web, HttpResponse};
 use poker_board::query::presentation::BoardPresentation;
 use poker_board::query::Board;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
 use util::entity::HandleEvent;
 use util::query::PresentationOf;
 
 use crate::websocket::WsCommand::ParticipantVoted;
-use util::use_case::UseCase;
 
 #[derive(Clone, Deserialize, Debug)]
 struct Command {
@@ -29,20 +30,46 @@ enum WsCommand {
     ParticipantVoted { vote: u8 },
 }
 
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(1);
+const CLIENT_TIMEOUT: Duration = Duration::from_secs(5);
+
 pub struct WebSocket {
     board_id: String,
     updates: Arc<dyn LoadUpdate<Vec<BoardModifiedEvent>, Key = String, Error = Error>>,
-    use_case: Arc<UseCase<CombinedEvent>>,
+    use_case: Arc<std::sync::mpsc::Sender<UseCaseMessage>>,
     task_handle: Option<JoinHandle<()>>,
     id: String,
     name: String,
+    hb: Instant,
+}
+
+#[derive(Debug)]
+pub struct UseCaseMessage {
+    pub board_id: String,
+    pub command: BoardCommand,
+    pub receiver: Recipient<ServerMessage>,
+}
+
+pub fn start(
+    r: actix_web::HttpRequest,
+    stream: web::Payload,
+    board_id: String,
+    updates: Arc<dyn LoadUpdate<Vec<BoardModifiedEvent>, Key = String, Error = Error>>,
+    use_case_tx: Arc<std::sync::mpsc::Sender<UseCaseMessage>>,
+    name: String,
+) -> Result<HttpResponse, actix_web::error::Error> {
+    ws::start(
+        WebSocket::new(board_id, updates, use_case_tx, name),
+        &r,
+        stream,
+    )
 }
 
 impl WebSocket {
     pub fn new(
         board_id: String,
         udpdates: Arc<dyn LoadUpdate<Vec<BoardModifiedEvent>, Key = String, Error = Error>>,
-        use_case: Arc<UseCase<CombinedEvent>>,
+        use_case: Arc<std::sync::mpsc::Sender<UseCaseMessage>>,
         name: String,
     ) -> Self {
         Self {
@@ -52,7 +79,20 @@ impl WebSocket {
             use_case,
             task_handle: None,
             name,
+            hb: Instant::now(),
         }
+    }
+
+    fn hb(&self, ctx: &mut WebsocketContext<Self>) {
+        ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
+            if Instant::now().duration_since(act.hb) > CLIENT_TIMEOUT {
+                println!("Websocket Client heartbeat failed, disconnecting!");
+                ctx.stop();
+                return;
+            }
+
+            ctx.ping(b"heyo");
+        });
     }
 
     async fn update_loop(
@@ -73,11 +113,6 @@ impl WebSocket {
                     match addr.send(ServerMessage::QueryUpdated(presentation)).await {
                         Ok(_) => {
                             last_event += updates.len();
-                            log::debug!("Sent {} events", updates.len());
-                            log::debug!("last event: {} ", last_event);
-                            updates.iter().for_each(|event| {
-                                log::debug!("event: {:?}", event);
-                            });
                         }
                         Err(e) => {
                             log::error!("Error sending message: {}", e);
@@ -94,14 +129,14 @@ impl WebSocket {
 
 #[derive(Message, Serialize)]
 #[rtype(result = "()")]
-enum ServerMessage {
+pub enum ServerMessage {
     QueryUpdated(BoardPresentation),
     CommandResult(Vec<BoardModifiedEvent>),
     Error(String),
 }
 
 impl ServerMessage {
-    fn send_to(self, addr: Recipient<ServerMessage>) {
+    pub fn send_to(self, addr: Recipient<ServerMessage>) {
         addr.do_send(self);
     }
 }
@@ -125,7 +160,13 @@ impl Handler<ServerMessage> for WebSocket {
 impl StreamHandler<Result<ws::Message, ProtocolError>> for WebSocket {
     fn handle(&mut self, message: Result<ws::Message, ProtocolError>, ctx: &mut Self::Context) {
         match message {
-            Ok(ws::Message::Ping(msg)) => ctx.pong(&msg),
+            Ok(ws::Message::Ping(msg)) => {
+                self.hb = Instant::now();
+                ctx.pong(&msg)
+            }
+            Ok(ws::Message::Pong(_)) => {
+                self.hb = Instant::now();
+            }
             Ok(ws::Message::Close(reason)) => {
                 ctx.close(reason);
                 ctx.stop();
@@ -138,19 +179,19 @@ impl StreamHandler<Result<ws::Message, ProtocolError>> for WebSocket {
                         let key = self.board_id.clone();
                         let command = self.convert_command(command.command);
                         let use_case = self.use_case.clone();
-                        tokio::spawn(async move {
-                            use_case
-                                .execute(&key, &command)
-                                .await
-                                .map(ServerMessage::CommandResult)
-                                .unwrap_or_else(|err| {
-                                    log::error!("Error: {:?}", err);
-                                    ServerMessage::Error(
-                                        "There was an error processing your command.".to_string(),
-                                    )
-                                })
-                                .send_to(addr);
-                        });
+                        use_case
+                            .send(UseCaseMessage {
+                                board_id: key,
+                                command,
+                                receiver: addr,
+                            })
+                            .unwrap_or_else(|err| {
+                                log::error!("Error sending command: {:?}", err);
+                                ctx.address().do_send(ServerMessage::Error(format!(
+                                    "There was an error processing your command {}",
+                                    err
+                                )));
+                            });
                     }
                     Err(err) => {
                         log::error!("Error deserializing command: {:?} {:?}", text, err);
@@ -171,6 +212,8 @@ impl Actor for WebSocket {
     type Context = WebsocketContext<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
+        self.hb(ctx);
+
         let addr = ctx.address();
         let updates = self.updates.clone();
         let board_id = self.board_id.clone();
@@ -179,24 +222,27 @@ impl Actor for WebSocket {
         let name = self.name.clone();
         let use_case = self.use_case.clone();
 
-        let handle = tokio::spawn(async move {
-            let add_participant = add_participant(name, id);
-            if let Ok(event) = use_case
-                .execute(&board_id, &add_participant)
-                .await
-                .or_else(|err| {
-                    log::error!("Error Adding Participant: {:?}", err);
-                    Err(err)
-                })
-            {
-                Self::update_loop(addr, updates, &board_id).await;
-            }
-        });
-
-        self.task_handle = Some(handle);
+        if let Ok(_) = use_case
+            .send(UseCaseMessage {
+                board_id: board_id.clone(),
+                command: command::add_participant(name.clone(), id.clone()),
+                receiver: addr.clone().recipient(),
+            })
+            .or_else(|err| {
+                log::error!("Error Adding Participant: {:?}", err.0);
+                Err(err)
+            })
+        {
+            let handle = tokio::spawn(async move {
+                {
+                    Self::update_loop(addr, updates, &board_id).await;
+                }
+            });
+            self.task_handle = Some(handle);
+        };
     }
 
-    fn stopped(&mut self, _ctx: &mut Self::Context) {
+    fn stopped(&mut self, ctx: &mut Self::Context) {
         if let Some(handle) = self.task_handle.take() {
             handle.abort();
         }
@@ -205,11 +251,15 @@ impl Actor for WebSocket {
         let use_case = self.use_case.clone();
         let board_id = self.board_id.clone();
 
-        let handle = tokio::spawn(async move {
-            let remove_participant = remove_participant(id.clone());
-            if let Err(err) = use_case.execute(&board_id, &remove_participant).await {
-                log::error!("Error Removing Participant: {:?}", err);
-            }
-        });
+        let remove_participant = remove_participant(id.clone());
+        self.use_case
+            .send(UseCaseMessage {
+                board_id,
+                command: remove_participant,
+                receiver: ctx.address().recipient(),
+            })
+            .unwrap_or_else(|err| {
+                log::error!("Error Removing Participant: {:?}", err.0);
+            });
     }
 }

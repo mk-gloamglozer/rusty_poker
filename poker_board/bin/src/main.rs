@@ -1,18 +1,21 @@
-use actix_web::web::{Data, Header, Path};
-use actix_web::{http, web, App, HttpResponse, HttpServer};
+use actix_web::web::{Data, Path};
+use actix_web::{web, App, HttpResponse, HttpServer};
 use poker_board::command::adapter::{CombinedEventStore, DefaultStore, NoRetry};
 use poker_board::command::event::{
     BoardModifiedEvent, CombinedEvent, VoteTypeEvent, VoteValidation,
 };
 use poker_board::command::BoardCommand;
 use std::fmt::Debug;
+use std::sync::mpsc::Sender;
 use util::query::Query;
 use util::use_case::UseCase;
 
 use crate::query_param::NameRequest;
-use actix_web_actors::ws;
 use poker_board::query;
+use util::store::LoadEntity;
+use websockets::sidecar::start_usecase_sidecar;
 use websockets::store::StoreInterface;
+use websockets::websocket::UseCaseMessage;
 use websockets::{store, websocket};
 
 mod query_param {
@@ -35,19 +38,17 @@ async fn board_ws(
     stream: web::Payload,
     path: Path<String>,
     update_store: Data<StoreInterface>,
-    use_case: Data<UseCase<CombinedEvent>>,
+    use_case_tx: Data<Sender<UseCaseMessage>>,
     name: web::Query<NameRequest>,
 ) -> actix_web::Result<HttpResponse> {
     let board_id = path.into_inner();
-    ws::start(
-        websocket::WebSocket::new(
-            board_id,
-            update_store.into_inner(),
-            use_case.into_inner(),
-            name.to_string(),
-        ),
-        &r,
+    websocket::start(
+        r,
         stream,
+        board_id,
+        update_store.into_inner(),
+        use_case_tx.into_inner(),
+        name.to_string(),
     )
     .log()
 }
@@ -105,6 +106,17 @@ async fn get_board(query: Data<Query<BoardModifiedEvent>>, path: Path<String>) -
         .unwrap_or_else(|_| HttpResponse::NotFound().finish())
 }
 
+#[actix_web::get("/board/{id}/events")]
+async fn get_events(event_store: Data<StoreInterface>, path: Path<String>) -> HttpResponse {
+    let key = path.into_inner();
+    log::debug!("Getting board with key: {}", key);
+    let response = event_store.load(&key).await;
+    response
+        .log()
+        .map(|board| HttpResponse::Ok().json(board))
+        .unwrap_or_else(|_| HttpResponse::NotFound().finish())
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     std::env::set_var("RUST_LOG", "debug");
@@ -119,7 +131,7 @@ async fn main() -> std::io::Result<()> {
     let combined_write_store =
         CombinedEventStore::new(store.clone(), vote_type_store.clone(), store.clone());
     let combined_read_store =
-        CombinedEventStore::new(store.clone(), vote_type_store, store.clone());
+        CombinedEventStore::new(store.clone(), vote_type_store.clone(), store.clone());
 
     let transaction = util::transaction::Transaction::<Vec<CombinedEvent>>::new(
         NoRetry::new(),
@@ -133,16 +145,22 @@ async fn main() -> std::io::Result<()> {
     let use_case_data = Data::new(use_case);
     let query_data = Data::new(query);
 
+    let tx = start_usecase_sidecar(use_case_data.clone().into_inner());
+
     HttpServer::new(move || {
         App::new()
             .route("/ws/board/{id}", web::get().to(board_ws))
             .app_data(Data::new(store.clone()))
             .app_data(query_data.clone())
+            .app_data(Data::new(tx.clone()))
             .app_data(use_case_data.clone())
             .service(modify_board)
             .service(get_board)
+            .service(get_events)
     })
     .bind(("127.0.0.1", 8080))?
     .run()
-    .await
+    .await?;
+
+    Ok(())
 }
