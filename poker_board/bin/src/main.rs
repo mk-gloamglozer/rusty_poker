@@ -9,49 +9,23 @@ use std::fmt::Debug;
 use util::query::Query;
 use util::use_case::UseCase;
 
+use crate::query_param::NameRequest;
 use actix_web_actors::ws;
 use poker_board::query;
 use websockets::store::StoreInterface;
 use websockets::{store, websocket};
 
-mod header {
-    use actix_web::error::ParseError;
-    use actix_web::http::header::{
-        Header, HeaderName, HeaderValue, InvalidHeaderValue, TryIntoHeaderValue,
-    };
-    use actix_web::HttpMessage;
-    use std::str::FromStr;
+mod query_param {
+    use serde::Deserialize;
 
-    pub const PARTICIPANT_NAME: &str = "participant-name";
+    #[derive(Debug, Deserialize)]
+    pub struct NameRequest {
+        name: String,
+    }
 
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct ParticipantName(String);
-
-    impl ToString for ParticipantName {
+    impl ToString for NameRequest {
         fn to_string(&self) -> String {
-            self.0.clone()
-        }
-    }
-
-    impl TryIntoHeaderValue for ParticipantName {
-        type Error = InvalidHeaderValue;
-
-        fn try_into_value(self) -> Result<HeaderValue, Self::Error> {
-            Ok(HeaderValue::from_str(&self.0)?)
-        }
-    }
-
-    impl Header for ParticipantName {
-        fn name() -> HeaderName {
-            HeaderName::from_str(PARTICIPANT_NAME).unwrap()
-        }
-
-        fn parse<M: HttpMessage>(msg: &M) -> Result<Self, ParseError> {
-            if let Some(value) = msg.headers().get(Self::name()) {
-                Ok(ParticipantName(value.to_str().unwrap().to_string()))
-            } else {
-                Err(ParseError::Header)
-            }
+            self.name.clone()
         }
     }
 }
@@ -62,7 +36,7 @@ async fn board_ws(
     path: Path<String>,
     update_store: Data<StoreInterface>,
     use_case: Data<UseCase<CombinedEvent>>,
-    name: Header<header::ParticipantName>,
+    name: web::Query<NameRequest>,
 ) -> actix_web::Result<HttpResponse> {
     let board_id = path.into_inner();
     ws::start(
@@ -119,7 +93,7 @@ async fn modify_board(
 }
 
 #[actix_web::get("/board/{id}")]
-async fn get_events(query: Data<Query<BoardModifiedEvent>>, path: Path<String>) -> HttpResponse {
+async fn get_board(query: Data<Query<BoardModifiedEvent>>, path: Path<String>) -> HttpResponse {
     let key = path.into_inner();
     log::debug!("Getting board with key: {}", key);
     let response = query
@@ -166,7 +140,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(query_data.clone())
             .app_data(use_case_data.clone())
             .service(modify_board)
-            .service(get_events)
+            .service(get_board)
     })
     .bind(("127.0.0.1", 8080))?
     .run()
