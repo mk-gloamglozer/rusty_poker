@@ -1,5 +1,5 @@
-use actix_web::web::{Data, Path};
-use actix_web::{web, App, HttpResponse, HttpServer};
+use actix_web::web::{Data, Header, Path};
+use actix_web::{http, web, App, HttpResponse, HttpServer};
 use poker_board::command::adapter::{CombinedEventStore, DefaultStore, NoRetry};
 use poker_board::command::event::{
     BoardModifiedEvent, CombinedEvent, VoteTypeEvent, VoteValidation,
@@ -14,12 +14,55 @@ use poker_board::query;
 use websockets::store::StoreInterface;
 use websockets::{store, websocket};
 
+mod header {
+    use actix_web::error::ParseError;
+    use actix_web::http::header::{
+        Header, HeaderName, HeaderValue, InvalidHeaderValue, TryIntoHeaderValue,
+    };
+    use actix_web::HttpMessage;
+    use std::str::FromStr;
+
+    pub const PARTICIPANT_NAME: &str = "participant-name";
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct ParticipantName(String);
+
+    impl ToString for ParticipantName {
+        fn to_string(&self) -> String {
+            self.0.clone()
+        }
+    }
+
+    impl TryIntoHeaderValue for ParticipantName {
+        type Error = InvalidHeaderValue;
+
+        fn try_into_value(self) -> Result<HeaderValue, Self::Error> {
+            Ok(HeaderValue::from_str(&self.0)?)
+        }
+    }
+
+    impl Header for ParticipantName {
+        fn name() -> HeaderName {
+            HeaderName::from_str(PARTICIPANT_NAME).unwrap()
+        }
+
+        fn parse<M: HttpMessage>(msg: &M) -> Result<Self, ParseError> {
+            if let Some(value) = msg.headers().get(Self::name()) {
+                Ok(ParticipantName(value.to_str().unwrap().to_string()))
+            } else {
+                Err(ParseError::Header)
+            }
+        }
+    }
+}
+
 async fn board_ws(
     r: actix_web::HttpRequest,
     stream: web::Payload,
     path: Path<String>,
     update_store: Data<StoreInterface>,
     use_case: Data<UseCase<CombinedEvent>>,
+    name: Header<header::ParticipantName>,
 ) -> actix_web::Result<HttpResponse> {
     let board_id = path.into_inner();
     ws::start(
@@ -27,7 +70,7 @@ async fn board_ws(
             board_id,
             update_store.into_inner(),
             use_case.into_inner(),
-            "test".to_string(),
+            name.to_string(),
         ),
         &r,
         stream,
