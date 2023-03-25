@@ -6,6 +6,7 @@ use util::entity::HandleEvent;
 pub mod presentation {
     use crate::query::{Board, Participant};
     use serde::Serialize;
+    use std::borrow::{Borrow, BorrowMut};
     use util::query::PresentationOf;
 
     #[derive(Default, Debug, PartialEq, Clone, Serialize)]
@@ -35,9 +36,10 @@ pub mod presentation {
             .map(|p| p.vote)
             .collect::<Option<Vec<u8>>>()?;
 
-        let max = max(votes.iter())?;
-        let min = min(votes.iter())?;
-        let average = average(votes.iter_mut())?;
+        let votes = votes.iter().filter(|v| **v != 0);
+        let max = votes.clone().max().copied()?;
+        let min = votes.clone().min().copied()?;
+        let average = average(votes.copied())?;
 
         Some(Stats {
             average: average as usize,
@@ -46,22 +48,14 @@ pub mod presentation {
         })
     }
 
-    fn max<'a>(votes: impl Iterator<Item = &'a u8>) -> Option<u8> {
-        votes.max().cloned()
-    }
-
-    fn min<'a>(votes: impl Iterator<Item = &'a u8>) -> Option<u8> {
-        votes.min().cloned()
-    }
-
-    fn average<'a>(votes: impl Iterator<Item = &'a mut u8>) -> Option<u8> {
-        let mut votes = votes.collect::<Vec<&mut u8>>();
-        if votes.is_empty() {
+    fn average<'a>(votes: impl Iterator<Item = u8>) -> Option<u8> {
+        let mut votes = votes.collect::<Vec<u8>>();
+        if votes.len() == 0 {
             None
         } else {
             votes.sort();
-            let middle = votes.len() / 2;
-            Some(*votes[middle])
+            let middle = (votes.len() / 2);
+            Some(votes[middle])
         }
     }
 
@@ -70,6 +64,26 @@ pub mod presentation {
         mod stats {
             use super::super::stats;
             use crate::query::Participant;
+            #[test]
+            fn it_should_ignore_0_votes() {
+                let mut participants = vec![
+                    Participant::new("John".into()),
+                    Participant::new("Jane".into()),
+                    Participant::new("Jack".into()),
+                    Participant::new("Jill".into()),
+                ];
+                participants[0].vote = Some(0);
+                participants[1].vote = Some(4);
+                participants[2].vote = Some(5);
+                participants[3].vote = Some(6);
+                let stats = stats(participants);
+                assert!(stats.is_some());
+                let stats = stats.unwrap();
+                assert_eq!(stats.average, 5);
+                assert_eq!(stats.max, 6);
+                assert_eq!(stats.min, 4);
+            }
+
             #[test]
             fn it_should_return_none_when_no_participants() {
                 let participants = vec![];
