@@ -23,7 +23,12 @@ async fn board_ws(
 ) -> actix_web::Result<HttpResponse> {
     let board_id = path.into_inner();
     ws::start(
-        websocket::WebSocket::new(board_id, update_store.into_inner(), use_case.into_inner()),
+        websocket::WebSocket::new(
+            board_id,
+            update_store.into_inner(),
+            use_case.into_inner(),
+            "test".to_string(),
+        ),
         &r,
         stream,
     )
