@@ -38,7 +38,8 @@ pub mod presentation {
         let mut votes = participants
             .iter()
             .map(|p| p.vote)
-            .collect::<Option<Vec<u8>>>()?;
+            .filter_map(|v| v)
+            .collect::<Vec<u8>>();
 
         let votes = votes.iter().filter(|v| **v != 0);
         let max = votes.clone().max().copied()?;
@@ -67,7 +68,7 @@ pub mod presentation {
     mod presentation_tests {
         use crate::command::event::{BoardModifiedEvent, Vote, VoteValue};
         use crate::query::presentation::BoardPresentation;
-        use crate::query::Board;
+        use crate::query::{Board, Participant};
         use std::collections::HashMap;
         use util::entity::HandleEvent;
         use util::query::PresentAs;
@@ -86,6 +87,34 @@ pub mod presentation {
             board.voting_complete = true;
             let presentation: BoardPresentation = board.present_as();
             assert!(presentation.voting_complete);
+        }
+
+        #[test]
+        fn it_should_not_include_stats_if_voting_incomplete() {
+            let participants = {
+                let mut map = HashMap::new();
+                for (i, participant) in vec![
+                    Participant::new("John".into()),
+                    Participant {
+                        name: "Jane".to_string(),
+                        vote: Some(1),
+                    },
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    map.insert(i.to_string(), participant);
+                }
+                map
+            };
+
+            let mut board = Board {
+                participants,
+                voting_complete: false,
+                number_voted: 0,
+            };
+            let presentation: BoardPresentation = board.present_as();
+            assert!(presentation.stats.is_none());
         }
 
         mod stats {
@@ -126,7 +155,7 @@ pub mod presentation {
             }
 
             #[test]
-            fn it_should_return_none_if_not_all_particpants_have_voted() {
+            fn it_should_ignore_non_voted_participants_in_calculation() {
                 let mut participants = vec![
                     Participant::new("John".into()),
                     Participant::new("Jane".into()),
@@ -135,7 +164,11 @@ pub mod presentation {
                 participants[0].vote = Some(1);
                 participants[1].vote = Some(2);
                 let stats = stats(participants);
-                assert_eq!(stats, None);
+                assert!(stats.is_some());
+                let stats = stats.unwrap();
+                assert_eq!(stats.average, 2);
+                assert_eq!(stats.max, 2);
+                assert_eq!(stats.min, 1);
             }
 
             #[test]
@@ -161,7 +194,9 @@ pub mod presentation {
     impl BoardPresentation {
         pub fn new(participants: Vec<Participant>, voting_complete: bool) -> Self {
             Self {
-                stats: stats(participants.clone()),
+                stats: voting_complete
+                    .then_some(participants.clone())
+                    .and_then(stats),
                 participants,
                 voting_complete,
             }
