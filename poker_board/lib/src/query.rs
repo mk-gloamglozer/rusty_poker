@@ -14,6 +14,7 @@ pub mod presentation {
         participants: Vec<Participant>,
         #[serde(flatten, skip_serializing_if = "Option::is_none")]
         stats: Option<Stats>,
+        voting_complete: bool,
     }
 
     #[derive(Default, Debug, PartialEq, Clone, Serialize)]
@@ -26,7 +27,10 @@ pub mod presentation {
     impl PresentationOf for BoardPresentation {
         type Model = Board;
         fn from_model(model: &Self::Model) -> Self {
-            BoardPresentation::new(model.participants.values().cloned().collect())
+            BoardPresentation::new(
+                model.participants.values().cloned().collect(),
+                model.voting_complete,
+            )
         }
     }
 
@@ -61,6 +65,29 @@ pub mod presentation {
 
     #[cfg(test)]
     mod presentation_tests {
+        use crate::command::event::{BoardModifiedEvent, Vote, VoteValue};
+        use crate::query::presentation::BoardPresentation;
+        use crate::query::Board;
+        use std::collections::HashMap;
+        use util::entity::HandleEvent;
+        use util::query::PresentAs;
+
+        #[test]
+        fn it_should_match_the_voting_complete_status_of_the_board() {
+            let mut board = Board {
+                participants: HashMap::new(),
+                voting_complete: false,
+                number_voted: 0,
+            };
+
+            let presentation: BoardPresentation = board.present_as();
+            assert!(!presentation.voting_complete);
+
+            board.voting_complete = true;
+            let presentation: BoardPresentation = board.present_as();
+            assert!(presentation.voting_complete);
+        }
+
         mod stats {
             use super::super::stats;
             use crate::query::Participant;
@@ -132,10 +159,11 @@ pub mod presentation {
     }
 
     impl BoardPresentation {
-        pub fn new(participants: Vec<Participant>) -> Self {
+        pub fn new(participants: Vec<Participant>, voting_complete: bool) -> Self {
             Self {
                 stats: stats(participants.clone()),
                 participants,
+                voting_complete,
             }
         }
     }
@@ -144,12 +172,16 @@ pub mod presentation {
 #[derive(Default, Debug, PartialEq, Clone)]
 pub struct Board {
     participants: HashMap<String, Participant>,
+    voting_complete: bool,
+    number_voted: usize,
 }
 
 impl Board {
     pub fn new() -> Self {
         Self {
             participants: HashMap::new(),
+            voting_complete: false,
+            number_voted: 0,
         }
     }
 }
@@ -189,10 +221,17 @@ impl HandleEvent for Board {
                 vote,
             } => {
                 if let Some(participant) = self.participants.get_mut(participant_id) {
+                    if participant.vote.is_none() {
+                        self.number_voted += 1;
+                    }
                     participant.vote = match vote.value {
                         VoteValue::Number(number) => Some(number),
                         VoteValue::String(_) => None,
                     };
+                }
+
+                if self.number_voted == self.participants.len() {
+                    self.voting_complete = true;
                 }
             }
             BoardModifiedEvent::ParticipantCouldNotVote { .. } => {}
@@ -210,7 +249,7 @@ impl HandleEvent for Board {
 mod tests {
     use super::*;
     use crate::command::event;
-    use crate::command::event::{ParticipantNotRemovedReason, ParticipantNotVotedReason};
+    use crate::command::event::{ParticipantNotRemovedReason, ParticipantNotVotedReason, Vote};
     use util::entity::EventSourced;
 
     #[test]
@@ -249,7 +288,7 @@ mod tests {
         board.apply(&event);
         let event = BoardModifiedEvent::ParticipantVoted {
             participant_id: "test".to_string(),
-            vote: event::Vote::new("test".to_string(), VoteValue::Number(1)),
+            vote: Vote::new("test".to_string(), VoteValue::Number(1)),
         };
         board.apply(&event);
         assert_eq!(board.participants.len(), 1);
@@ -279,7 +318,7 @@ mod tests {
         board.apply(&event);
         let event = BoardModifiedEvent::ParticipantVoted {
             participant_id: "test".to_string(),
-            vote: event::Vote::new("test".to_string(), VoteValue::Number(1)),
+            vote: Vote::new("test".to_string(), VoteValue::Number(1)),
         };
         board.apply(&event);
         let event = BoardModifiedEvent::VotesCleared;
@@ -316,11 +355,162 @@ mod tests {
             },
             BoardModifiedEvent::ParticipantVoted {
                 participant_id: "test".to_string(),
-                vote: event::Vote::new("test".to_string(), VoteValue::Number(1)),
+                vote: Vote::new("test".to_string(), VoteValue::Number(1)),
             },
         ];
         let board = Board::source(&events);
         assert_eq!(board.participants.len(), 1);
         assert!(board.participants.get("test").unwrap().vote.is_some());
+    }
+
+    #[test]
+    pub fn it_should_complete_voting_when_all_participants_have_voted() {
+        let mut board = Board::default();
+        let events = vec![
+            BoardModifiedEvent::ParticipantAdded {
+                participant_id: "test".to_string(),
+                participant_name: "test".to_string(),
+            },
+            BoardModifiedEvent::ParticipantAdded {
+                participant_id: "test_1".to_string(),
+                participant_name: "test_1".to_string(),
+            },
+            BoardModifiedEvent::ParticipantVoted {
+                participant_id: "test".to_string(),
+                vote: Vote::new("test".to_string(), VoteValue::Number(1)),
+            },
+            BoardModifiedEvent::ParticipantVoted {
+                participant_id: "test_1".to_string(),
+                vote: Vote::new("test".to_string(), VoteValue::Number(1)),
+            },
+        ];
+        for event in events {
+            board.apply(&event);
+        }
+
+        assert_eq!(board.voting_complete, true);
+    }
+
+    #[test]
+    fn voting_should_not_be_complete_when_not_all_participants_have_voted() {
+        let mut board = Board::default();
+        let events = vec![
+            BoardModifiedEvent::ParticipantAdded {
+                participant_id: "test".to_string(),
+                participant_name: "test".to_string(),
+            },
+            BoardModifiedEvent::ParticipantAdded {
+                participant_id: "test_1".to_string(),
+                participant_name: "test_1".to_string(),
+            },
+            BoardModifiedEvent::ParticipantVoted {
+                participant_id: "test".to_string(),
+                vote: Vote::new("test".to_string(), VoteValue::Number(1)),
+            },
+        ];
+        for event in events {
+            board.apply(&event);
+        }
+
+        assert_eq!(board.voting_complete, false);
+    }
+
+    #[test]
+    fn voting_should_not_be_complete_when_no_participants_have_voted() {
+        let mut board = Board::default();
+        let events = vec![
+            BoardModifiedEvent::ParticipantAdded {
+                participant_id: "test".to_string(),
+                participant_name: "test".to_string(),
+            },
+            BoardModifiedEvent::ParticipantAdded {
+                participant_id: "test_1".to_string(),
+                participant_name: "test_1".to_string(),
+            },
+        ];
+        for event in events {
+            board.apply(&event);
+        }
+
+        assert_eq!(board.voting_complete, false);
+    }
+
+    #[test]
+    fn voting_should_remain_complete_when_participant_changes_vote() {
+        let mut board = Board::default();
+        let events = vec![
+            BoardModifiedEvent::ParticipantAdded {
+                participant_id: "test".to_string(),
+                participant_name: "test".to_string(),
+            },
+            BoardModifiedEvent::ParticipantVoted {
+                participant_id: "test".to_string(),
+                vote: Vote::new("test".to_string(), VoteValue::Number(1)),
+            },
+            BoardModifiedEvent::ParticipantVoted {
+                participant_id: "test".to_string(),
+                vote: Vote::new("test".to_string(), VoteValue::Number(2)),
+            },
+        ];
+        for event in events {
+            board.apply(&event);
+        }
+
+        assert_eq!(board.voting_complete, true);
+    }
+
+    #[test]
+    fn voting_should_remain_complete_when_a_participant_is_removed() {
+        let mut board = Board::default();
+        let events = vec![
+            BoardModifiedEvent::ParticipantAdded {
+                participant_id: "test".to_string(),
+                participant_name: "test".to_string(),
+            },
+            BoardModifiedEvent::ParticipantAdded {
+                participant_id: "test_1".to_string(),
+                participant_name: "test_1".to_string(),
+            },
+            BoardModifiedEvent::ParticipantVoted {
+                participant_id: "test".to_string(),
+                vote: Vote::new("test".to_string(), VoteValue::Number(1)),
+            },
+            BoardModifiedEvent::ParticipantVoted {
+                participant_id: "test_1".to_string(),
+                vote: Vote::new("test_1".to_string(), VoteValue::Number(2)),
+            },
+            BoardModifiedEvent::ParticipantRemoved {
+                participant_id: "test".to_string(),
+            },
+        ];
+        for event in events {
+            board.apply(&event);
+        }
+
+        assert_eq!(board.voting_complete, true);
+    }
+
+    #[test]
+    fn voting_should_remain_complete_when_a_participant_is_added() {
+        let mut board = Board::default();
+        let events = vec![
+            BoardModifiedEvent::ParticipantAdded {
+                participant_id: "test".to_string(),
+                participant_name: "test".to_string(),
+            },
+            BoardModifiedEvent::ParticipantVoted {
+                participant_id: "test".to_string(),
+                vote: Vote::new("test".to_string(), VoteValue::Number(1)),
+            },
+            BoardModifiedEvent::ParticipantAdded {
+                participant_id: "test_1".to_string(),
+                participant_name: "test_1".to_string(),
+            },
+        ];
+        for event in events {
+            board.apply(&event);
+        }
+
+        assert_eq!(board.voting_complete, true);
     }
 }
