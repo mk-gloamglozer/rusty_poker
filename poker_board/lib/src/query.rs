@@ -248,8 +248,14 @@ impl HandleEvent for Board {
                     .insert(participant_id.clone(), participant);
             }
             BoardModifiedEvent::ParticipantRemoved { participant_id } => {
-                self.participants.remove(participant_id);
+                let participant = self.participants.remove(participant_id);
+                if let Some(participant) = participant {
+                    if participant.vote.is_some() {
+                        self.number_voted -= 1;
+                    }
+                }
             }
+
             BoardModifiedEvent::ParticipantCouldNotBeRemoved { .. } => {}
             BoardModifiedEvent::ParticipantVoted {
                 participant_id,
@@ -570,5 +576,48 @@ mod tests {
         }
 
         assert_eq!(board.voting_complete, false);
+    }
+
+    #[test]
+    fn it_should_not_complete_if_participant_is_removed_after_voting_another_is_added_and_votes() {
+        let mut board = Board::default();
+        let events = vec![
+            BoardModifiedEvent::ParticipantAdded {
+                participant_id: "test_1".to_string(),
+                participant_name: "test_1".to_string(),
+            },
+            BoardModifiedEvent::ParticipantAdded {
+                participant_id: "test".to_string(),
+                participant_name: "test".to_string(),
+            },
+            BoardModifiedEvent::ParticipantVoted {
+                participant_id: "test".to_string(),
+                vote: Vote::new("test".to_string(), VoteValue::Number(1)),
+            },
+            BoardModifiedEvent::ParticipantRemoved {
+                participant_id: "test".to_string(),
+            },
+            BoardModifiedEvent::ParticipantAdded {
+                participant_id: "test_2".to_string(),
+                participant_name: "test".to_string(),
+            },
+            BoardModifiedEvent::ParticipantVoted {
+                participant_id: "test_2".to_string(),
+                vote: Vote::new("test".to_string(), VoteValue::Number(1)),
+            },
+        ];
+        for event in events {
+            board.apply(&event);
+        }
+
+        assert_eq!(board.voting_complete, false);
+
+        let event = BoardModifiedEvent::ParticipantVoted {
+            participant_id: "test_1".to_string(),
+            vote: Vote::new("test".to_string(), VoteValue::Number(1)),
+        };
+        board.apply(&event);
+
+        assert_eq!(board.voting_complete, true);
     }
 }
