@@ -239,6 +239,8 @@ impl HandleEvent for Board {
                 for participant in self.participants.values_mut() {
                     participant.vote = None;
                 }
+                self.number_voted = 0;
+                self.voting_complete = false;
             }
             BoardModifiedEvent::ParticipantNotAdded { .. } => {}
         }
@@ -512,5 +514,26 @@ mod tests {
         }
 
         assert_eq!(board.voting_complete, true);
+    }
+
+    #[test]
+    fn it_should_not_be_complete_after_votes_cleared() {
+        let mut board = Board::default();
+        let events = vec![
+            BoardModifiedEvent::ParticipantAdded {
+                participant_id: "test".to_string(),
+                participant_name: "test".to_string(),
+            },
+            BoardModifiedEvent::ParticipantVoted {
+                participant_id: "test".to_string(),
+                vote: Vote::new("test".to_string(), VoteValue::Number(1)),
+            },
+            BoardModifiedEvent::VotesCleared,
+        ];
+        for event in events {
+            board.apply(&event);
+        }
+
+        assert_eq!(board.voting_complete, false);
     }
 }
