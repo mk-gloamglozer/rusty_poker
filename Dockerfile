@@ -20,6 +20,7 @@ WORKDIR /app
 RUN apk add --update nodejs
 
 COPY frontend/package.json ./package.json
+COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 
 COPY --from=builder /app/build .
 COPY target/x86_64-unknown-linux-musl/release/bin .
