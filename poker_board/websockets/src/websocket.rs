@@ -84,9 +84,12 @@ impl WebSocket {
     }
 
     fn hb(&self, ctx: &mut WebsocketContext<Self>) {
-        ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
+        ctx.run_interval(HEARTBEAT_INTERVAL, move |act, ctx| {
             if Instant::now().duration_since(act.hb) > CLIENT_TIMEOUT {
-                println!("Websocket Client heartbeat failed, disconnecting!");
+                log::error!(
+                    "Websocket Client heartbeat failed for {:?}, disconnecting!",
+                    act.id
+                );
                 ctx.stop();
                 return;
             }
