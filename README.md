@@ -41,3 +41,14 @@ this requires ```DOCKER_BUILDKIT=1``` to be set in your environment.
 ```bash
 DOCKER_BUILDKIT=1 docker build -t rusty-poker .
 ```
+## Environment Variables
+
+| Variable              | Description                                                                                            |
+|-----------------------|--------------------------------------------------------------------------------------------------------|
+| ```RUST_LOG```        | Sets the log level for the API.                                                                        |
+| ```RUST_BACKTRACE```  | Enables backtraces for the API.                                                                        |
+| ```PORT```            | The port to bind the public API to.                                                                    |
+| ```HOST```            | The host to bind the public API to. ( Should be 0.0.0.0 inside a docker contianer )                    |
+| ```ORIGIN```          | The origin to allow for CORS on the frontend.                                                          |
+| ```PUBLIC_API_HOST``` | The host to bind the public API to, required for frontend websocket.                                   |
+| ```PUBLIC_API_URI```  | The URI to bind the public API to, required for frontend websocket. This must end in a trailing slash. |
