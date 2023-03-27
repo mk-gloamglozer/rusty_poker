@@ -13,9 +13,11 @@ WORKDIR /app
 COPY frontend/package.json ./package.json
 RUN yarn --production
 
-FROM node:16.17-alpine AS prod
+FROM nginx:stable-alpine AS prod
 
 WORKDIR /app
+
+RUN apk add --update nodejs
 
 COPY frontend/package.json ./package.json
 
@@ -30,13 +32,28 @@ pid_1=$!
 node index.js&
 pid_2=$!
 
+nginx -g "daemon off;" &
+pid_3=$!
+
 trap_handler (){
-    kill -2 ${pid_1} ${pid_2}
-    wait ${pid_1}
-    wait ${pid_2}
+    if [ -n "${pid_1}" ]; then
+        kill -2 ${pid_1}
+        wait ${pid_1}
+    fi
+
+    if [ -n "${pid_2}" ]; then
+        kill -2 ${pid_2}
+        wait ${pid_2}
+    fi
+
+    if [ -n "${pid_3}" ]; then
+        kill -3 ${pid_3}
+        wait ${pid_3}
+    fi
+
     exit 0
 }
-trap trap_handler INT TERM
+trap trap_handler INT TERM QUIT
 wait
 EOF
 

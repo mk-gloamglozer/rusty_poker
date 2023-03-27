@@ -8,6 +8,8 @@
 	import Symbol from '$lib/components/user_symbol.svelte';
 	import UserList from '$lib/components/user_list.svelte';
 
+	import { env } from '$env/dynamic/public';
+
 	import { onDestroy, onMount } from 'svelte';
 	import type { PageData } from './$types';
 	import Stats from '$lib/components/stats.svelte';
@@ -34,7 +36,7 @@
 	}
 
 	onMount(() => {
-		socket = new WebSocket(`ws://localhost:8080/ws/board/1?name=${data.name}`);
+		socket = new WebSocket(`ws://${env.PUBLIC_API_HOST}/${env.PUBLIC_API_URI}/ws/board/1?name=${data.name}`);
 
 		// Connection opened
 		socket.addEventListener('open', function (event) {
