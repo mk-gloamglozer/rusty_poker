@@ -147,6 +147,14 @@ async fn main() -> std::io::Result<()> {
 
     let tx = start_usecase_sidecar(use_case_data.clone().into_inner());
 
+    let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
+    let port = std::env::var("PORT")
+        .unwrap_or(String::default())
+        .parse::<u16>()
+        .unwrap_or(8080);
+
+    log::info!("Starting server on {}:{}", host, port);
+
     HttpServer::new(move || {
         App::new()
             .route("/ws/board/{id}", web::get().to(board_ws))
@@ -158,7 +166,7 @@ async fn main() -> std::io::Result<()> {
             .service(get_board)
             .service(get_events)
     })
-    .bind(("0.0.0.0", 8080))?
+    .bind((host, port))?
     .run()
     .await?;
 
