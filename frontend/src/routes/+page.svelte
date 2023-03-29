@@ -36,7 +36,9 @@
 	}
 
 	onMount(() => {
-		socket = new WebSocket(`ws://${env.PUBLIC_API_HOST}/${env.PUBLIC_API_URI}/ws/board/1?name=${data.name}`);
+		socket = new WebSocket(
+			`${env.PUBLIC_API_HOST}/${env.PUBLIC_API_URI}/ws/board/1?name=${data.name}`
+		);
 
 		// Connection opened
 		socket.addEventListener('open', function (event) {
@@ -88,7 +90,7 @@
 						<h2 class="text-4xl">Your Vote Matters</h2>
 					</article>
 					<div class="divider grow"><p>probably</p></div>
-					<div class="flex flex-wrap flex-row grow gap-5 sm:w-10/12">
+					<div class="flex flex-wrap flex-col md:flex-row grow gap-5 sm:w-10/12">
 						<div class="rounded-lg btn-group md:basis-full grow shadow-xl">
 							<button class="btn btn-outline" on:click={click(selected, 0)}>Abstain</button>
 							{#each values as value, i}
