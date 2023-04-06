@@ -13,7 +13,7 @@ WORKDIR /app
 COPY frontend/package.json ./package.json
 RUN yarn --production
 
-FROM nginx:stable-alpine AS prod
+FROM nginxinc/nginx-unprivileged:stable-alpine AS prod
 
 WORKDIR /app
 
